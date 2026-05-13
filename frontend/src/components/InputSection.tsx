@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database, Code2, Layers, Type, Hash, Play, ChevronDown, Check, X } from 'lucide-react';
+import { Database, Code2, Layers, Type, Hash, Play } from 'lucide-react';
 import MultiSelect from './MultiSelect';
 
 interface InputSectionProps {
@@ -26,7 +26,7 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) =>
     onGenerate(formData);
   };
 
-  const toggleSelection = (field: 'tables' | 'columns', value: string) => {
+  /*const toggleSelection = (field: 'tables' | 'columns', value: string) => {
     setFormData(prev => {
       const current = prev[field];
       const next = current.includes(value)
@@ -34,7 +34,7 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) =>
         : [...current, value];
       return { ...prev, [field]: next };
     });
-  };
+  };*/
 
   return (
     <div className="flex flex-col h-full glass-sidebar p-6 w-80 shrink-0 overflow-y-auto">
