@@ -3,7 +3,8 @@ import axios from 'axios';
 import InputSection from './components/InputSection';
 import MainSection from './components/MainSection';
 
-const API_BASE_URL = 'http://localhost:8000';
+//const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'https://sdlc-assist-app-be.onrender.com';
 
 function App() {
   const [generatedCode, setGeneratedCode] = React.useState<string | null>(null);
@@ -31,10 +32,10 @@ function App() {
   return (
     <div className="flex h-screen bg-[#0a0a0c] text-slate-200 overflow-hidden">
       <InputSection onGenerate={handleGenerate} isLoading={loading} />
-      <MainSection 
-        code={generatedCode} 
-        insights={dqInsights} 
-        isLoading={loading} 
+      <MainSection
+        code={generatedCode}
+        insights={dqInsights}
+        isLoading={loading}
       />
     </div>
   );
