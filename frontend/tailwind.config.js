@@ -7,12 +7,17 @@ export default {
   theme: {
     extend: {
       colors: {
-        background: "#0a0a0c",
-        sidebar: "rgba(20, 20, 23, 0.8)",
-        card: "#16161a",
+        background: "#FFFFFF",
+        sidebar: "#F8F9FA",
+        card: "#FFFFFF",
+        axis: {
+          burgundy: "#891B3F",
+          red: "#EB1165",
+          gray: "#F5F7FA",
+        },
         accent: {
-          primary: "#6366f1", // Indigo
-          secondary: "#a855f7", // Purple
+          primary: "#891B3F", // Burgundy
+          secondary: "#EB1165", // Ruby Red
           success: "#10b981", // Emerald
         }
       },

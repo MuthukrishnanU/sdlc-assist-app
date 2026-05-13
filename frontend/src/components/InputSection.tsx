@@ -39,10 +39,10 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) =>
   return (
     <div className="flex flex-col h-full glass-sidebar p-6 w-80 shrink-0 overflow-y-auto">
       <div className="flex items-center gap-2 mb-8">
-        <div className="p-2 bg-indigo-500/20 rounded-lg">
-          <Code2 className="w-6 h-6 text-indigo-400" />
+        <div className="p-2 bg-axis-burgundy/10 rounded-lg">
+          <Code2 className="w-6 h-6 text-axis-burgundy" />
         </div>
-        <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
+        <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-axis-burgundy to-axis-red">
           SDLC Assist
         </h2>
       </div>
@@ -50,15 +50,15 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) =>
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Select Format */}
         <div className="space-y-2">
-          <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-            <Layers className="w-3 h-3" /> Select Format
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+            <Layers className="w-3 h-3 text-axis-burgundy" /> Select Format
           </label>
           <select
-            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
+            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-axis-burgundy/20 transition-all text-gray-700"
             value={formData.format}
             onChange={(e) => setFormData({ ...formData, format: e.target.value })}
           >
-            {formats.map(f => <option key={f} value={f} className="bg-gray-900">{f}</option>)}
+            {formats.map(f => <option key={f} value={f} className="bg-white">{f}</option>)}
           </select>
         </div>
 
@@ -84,11 +84,11 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) =>
 
         {/* Logic in English */}
         <div className="space-y-2">
-          <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-            <Type className="w-3 h-3" /> Logic in English
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+            <Type className="w-3 h-3 text-axis-burgundy" /> Logic in English
           </label>
           <textarea
-            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm h-24 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all resize-none"
+            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm h-24 focus:outline-none focus:ring-2 focus:ring-axis-burgundy/20 transition-all resize-none text-gray-700"
             placeholder="Describe your requirement..."
             value={formData.logic}
             onChange={(e) => setFormData({ ...formData, logic: e.target.value })}
@@ -97,22 +97,22 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) =>
 
         {/* Sample Data Size */}
         <div className="space-y-2">
-          <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-            <Hash className="w-3 h-3" /> Sample Data Size
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
+            <Hash className="w-3 h-3 text-axis-burgundy" /> Sample Data Size
           </label>
           <select
-            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
+            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-axis-burgundy/20 transition-all text-gray-700"
             value={formData.sample_data_size}
             onChange={(e) => setFormData({ ...formData, sample_data_size: parseInt(e.target.value) })}
           >
-            {sampleSizes.map(size => <option key={size} value={size} className="bg-gray-900">{size}</option>)}
+            {sampleSizes.map(size => <option key={size} value={size} className="bg-white">{size}</option>)}
           </select>
         </div>
 
         <button
           type="submit"
           disabled={isLoading}
-          className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-3 rounded-xl transition-all shadow-xl shadow-indigo-500/10 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed group"
+          className="w-full bg-gradient-to-r from-axis-burgundy to-axis-red hover:brightness-110 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-axis-burgundy/20 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed group"
         >
           {isLoading ? (
             <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />

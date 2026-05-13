@@ -3,29 +3,29 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
   margin: 0;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  background-color: #0a0a0c;
-  color: #e2e8f0;
+  background-color: #F5F7FA;
+  color: #1a1a1c;
 }
 
-/* Glassmorphism utilities */
+/* Axis Bank Style utilities */
 .glass {
-  background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(137, 27, 63, 0.1);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
 }
 
 .glass-sidebar {
-  background: rgba(15, 15, 18, 0.7);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  background: #FFFFFF;
+  border-right: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.02);
 }
 
 /* Custom scrollbar */
@@ -38,7 +38,7 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.1);
   border-radius: 4px;
 }
 

@@ -47,14 +47,14 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
 
   return (
     <div className="space-y-2" ref={containerRef}>
-      <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
         {icon} {label}
       </label>
       
       <div className="relative">
         <div
           onClick={() => setIsOpen(!isOpen)}
-          className={`min-h-[42px] w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 flex flex-wrap gap-1.5 items-center cursor-pointer hover:bg-white/10 transition-all focus-within:ring-2 focus-within:ring-indigo-500/50 ${isOpen ? 'ring-2 ring-indigo-500/50 border-indigo-500/50' : ''}`}
+          className={`min-h-[42px] w-full bg-white border border-gray-200 rounded-lg px-3 py-1.5 flex flex-wrap gap-1.5 items-center cursor-pointer hover:border-gray-300 transition-all focus-within:ring-2 focus-within:ring-axis-burgundy/20 ${isOpen ? 'ring-2 ring-axis-burgundy/20 border-axis-burgundy/50' : ''}`}
         >
           {selected.length === 0 ? (
             <span className="text-sm text-gray-500 ml-1">{placeholder}</span>
@@ -62,7 +62,7 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
             selected.map(item => (
               <span
                 key={item}
-                className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-md text-xs font-medium animate-in fade-in zoom-in duration-200"
+                className="inline-flex items-center gap-1 px-2 py-0.5 bg-axis-burgundy/10 text-axis-burgundy border border-axis-burgundy/20 rounded-md text-xs font-medium animate-in fade-in zoom-in duration-200"
               >
                 {item}
                 <button
@@ -92,7 +92,7 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
         </div>
 
         {isOpen && (
-          <div className="absolute z-50 w-full mt-2 bg-[#16161a] border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 backdrop-blur-xl">
+          <div className="absolute z-50 w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
             <div className="max-h-60 overflow-y-auto p-1.5 custom-scrollbar">
               {options.length === 0 ? (
                 <div className="px-3 py-2 text-sm text-gray-500">No options available</div>
@@ -105,15 +105,15 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
                       onClick={() => toggleOption(option)}
                       className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors ${
                         isSelected 
-                          ? 'bg-indigo-500/20 text-indigo-300' 
-                          : 'text-gray-300 hover:bg-white/5'
+                          ? 'bg-axis-burgundy/5 text-axis-burgundy' 
+                          : 'text-gray-700 hover:bg-gray-50'
                       }`}
                     >
                       <span>{option}</span>
                       <div className={`w-4 h-4 rounded border transition-all flex items-center justify-center ${
                         isSelected 
-                          ? 'bg-indigo-500 border-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.4)]' 
-                          : 'border-white/20 bg-white/5'
+                          ? 'bg-axis-burgundy border-axis-burgundy shadow-[0_0_10px_rgba(137,27,63,0.2)]' 
+                          : 'border-gray-300 bg-white'
                       }`}>
                         {isSelected && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
                       </div>
