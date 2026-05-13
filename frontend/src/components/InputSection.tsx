@@ -1,6 +1,7 @@
 import React from 'react';
 import { Database, Code2, Layers, Type, Hash, Play } from 'lucide-react';
 import MultiSelect from './MultiSelect';
+import CustomDropdown from './CustomDropdown';
 
 interface InputSectionProps {
   onGenerate: (data: any) => void;
@@ -49,18 +50,13 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) =>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Select Format */}
-        <div className="space-y-2">
-          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-            <Layers className="w-3 h-3 text-axis-burgundy" /> Select Format
-          </label>
-          <select
-            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-axis-burgundy/20 transition-all text-gray-700"
-            value={formData.format}
-            onChange={(e) => setFormData({ ...formData, format: e.target.value })}
-          >
-            {formats.map(f => <option key={f} value={f} className="bg-white">{f}</option>)}
-          </select>
-        </div>
+        <CustomDropdown
+          label="Select Format"
+          options={formats}
+          value={formData.format}
+          onChange={(val) => setFormData({ ...formData, format: val })}
+          icon={<Layers className="w-3 h-3 text-axis-burgundy" />}
+        />
 
         {/* Select Tables */}
         <MultiSelect
@@ -96,18 +92,13 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) =>
         </div>
 
         {/* Sample Data Size */}
-        <div className="space-y-2">
-          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-            <Hash className="w-3 h-3 text-axis-burgundy" /> Sample Data Size
-          </label>
-          <select
-            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-axis-burgundy/20 transition-all text-gray-700"
-            value={formData.sample_data_size}
-            onChange={(e) => setFormData({ ...formData, sample_data_size: parseInt(e.target.value) })}
-          >
-            {sampleSizes.map(size => <option key={size} value={size} className="bg-white">{size}</option>)}
-          </select>
-        </div>
+        <CustomDropdown
+          label="Sample Data Size"
+          options={sampleSizes}
+          value={formData.sample_data_size}
+          onChange={(val) => setFormData({ ...formData, sample_data_size: val })}
+          icon={<Hash className="w-3 h-3 text-axis-burgundy" />}
+        />
 
         <button
           type="submit"
