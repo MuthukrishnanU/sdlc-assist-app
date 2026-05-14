@@ -1,5 +1,6 @@
 import React from 'react';
 import axios from 'axios';
+import { ThemeProvider } from './ThemeContext';
 import InputSection from './components/InputSection';
 import MainSection from './components/MainSection';
 
@@ -30,14 +31,16 @@ function App() {
   };
 
   return (
-    <div className="flex h-screen bg-[#0a0a0c] text-slate-200 overflow-hidden">
-      <InputSection onGenerate={handleGenerate} isLoading={loading} />
-      <MainSection
-        code={generatedCode}
-        insights={dqInsights}
-        isLoading={loading}
-      />
-    </div>
+    <ThemeProvider>
+      <div className="flex h-screen overflow-hidden">
+        <InputSection onGenerate={handleGenerate} isLoading={loading} />
+        <MainSection
+          code={generatedCode}
+          insights={dqInsights}
+          isLoading={loading}
+        />
+      </div>
+    </ThemeProvider>
   );
 }
 

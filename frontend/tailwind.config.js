@@ -12,8 +12,12 @@ export default {
         card: "#FFFFFF",
         axis: {
           burgundy: "#891B3F",
+          'burgundy-dark': "#6B1532",
+          'burgundy-deep': "#4A0E23",
           red: "#EB1165",
           gray: "#F5F7FA",
+          cream: "#FFF5F7",
+          'cream-dark': "#FFEAEF",
         },
         accent: {
           primary: "#891B3F", // Burgundy

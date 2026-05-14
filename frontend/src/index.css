@@ -11,21 +11,44 @@ body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   background-color: #F5F7FA;
   color: #1a1a1c;
+  transition: background-color 0.4s ease, color 0.4s ease;
 }
 
-/* Axis Bank Style utilities */
+body.dark {
+  background-color: #4A0E23;
+  color: #fce4ec;
+}
+
+/* ===================== LIGHT MODE ===================== */
 .glass {
   background: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border: 1px solid rgba(137, 27, 63, 0.1);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+  transition: all 0.4s ease;
 }
 
 .glass-sidebar {
   background: #FFFFFF;
   border-right: 1px solid rgba(0, 0, 0, 0.05);
   box-shadow: 4px 0 20px rgba(0, 0, 0, 0.02);
+  transition: all 0.4s ease;
+}
+
+/* ===================== DARK MODE ===================== */
+body.dark .glass {
+  background: rgba(137, 27, 63, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+body.dark .glass-sidebar {
+  background: linear-gradient(180deg, #6B1532 0%, #4A0E23 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.2);
 }
 
 /* Custom scrollbar */
@@ -42,8 +65,16 @@ body {
   border-radius: 4px;
 }
 
+body.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+body.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 /* Animation for code generation */
@@ -95,6 +126,11 @@ body {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+}
+
+body.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
   border-radius: 10px;
 }

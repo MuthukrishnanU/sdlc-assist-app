@@ -1,5 +1,6 @@
 import React from 'react';
-import { Database, Code2, Layers, Type, Hash, Play } from 'lucide-react';
+import { Database, Code2, Layers, Type, Hash, Play, Sun, Moon } from 'lucide-react';
+import { useTheme } from '../ThemeContext';
 import MultiSelect from './MultiSelect';
 import CustomDropdown from './CustomDropdown';
 
@@ -9,6 +10,7 @@ interface InputSectionProps {
 }
 
 const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) => {
+  const { isDark, toggleTheme } = useTheme();
   const [formData, setFormData] = React.useState({
     format: 'SQL',
     tables: [] as string[],
@@ -40,12 +42,38 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) =>
   return (
     <div className="flex flex-col h-full glass-sidebar p-6 w-80 shrink-0 overflow-y-auto">
       <div className="flex items-center gap-2 mb-8">
-        <div className="p-2 bg-axis-burgundy/10 rounded-lg">
-          <Code2 className="w-6 h-6 text-axis-burgundy" />
+        <div className={`p-2 rounded-lg ${isDark ? 'bg-white/10' : 'bg-axis-burgundy/10'}`}>
+          <Code2 className={`w-6 h-6 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />
         </div>
-        <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-axis-burgundy to-axis-red">
+        <h2 className={`text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r ${isDark ? 'from-axis-cream to-axis-red' : 'from-axis-burgundy to-axis-red'}`}>
           SDLC Assist
         </h2>
+
+        {/* Dark Mode Toggle */}
+        <button
+          onClick={toggleTheme}
+          className={`ml-auto relative w-14 h-7 rounded-full transition-all duration-400 flex items-center ${
+            isDark
+              ? 'bg-axis-burgundy-dark border border-axis-red/30 shadow-[0_0_12px_rgba(235,17,101,0.15)]'
+              : 'bg-gray-200 border border-gray-300'
+          }`}
+          aria-label="Toggle dark mode"
+          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          <div
+            className={`absolute w-5 h-5 rounded-full flex items-center justify-center transition-all duration-300 ${
+              isDark
+                ? 'translate-x-[30px] bg-axis-red shadow-lg shadow-axis-red/30'
+                : 'translate-x-1 bg-white shadow-md'
+            }`}
+          >
+            {isDark ? (
+              <Moon className="w-3 h-3 text-white" />
+            ) : (
+              <Sun className="w-3 h-3 text-amber-500" />
+            )}
+          </div>
+        </button>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -55,7 +83,7 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) =>
           options={formats}
           value={formData.format}
           onChange={(val) => setFormData({ ...formData, format: val })}
-          icon={<Layers className="w-3 h-3 text-axis-burgundy" />}
+          icon={<Layers className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}
         />
 
         {/* Select Tables */}
@@ -84,16 +112,20 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) =>
           options={sampleSizes}
           value={formData.sample_data_size}
           onChange={(val) => setFormData({ ...formData, sample_data_size: val })}
-          icon={<Hash className="w-3 h-3 text-axis-burgundy" />}
+          icon={<Hash className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}
         />
 
         {/* Logic in English */}
         <div className="space-y-2">
-          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">
-            <Type className="w-3 h-3 text-axis-burgundy" /> Logic in English
+          <label className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-2 ${isDark ? 'text-white/50' : 'text-gray-500'}`}>
+            <Type className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} /> Logic in English
           </label>
           <textarea
-            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm h-24 focus:outline-none focus:ring-2 focus:ring-axis-burgundy/20 transition-all resize-none text-gray-700"
+            className={`w-full rounded-lg px-3 py-2 text-sm h-24 focus:outline-none focus:ring-2 transition-all resize-none ${
+              isDark
+                ? 'bg-white/10 border border-white/10 focus:ring-axis-red/30 text-white placeholder-white/30'
+                : 'bg-white border border-gray-200 focus:ring-axis-burgundy/20 text-gray-700 placeholder-gray-400'
+            }`}
             placeholder="Describe your requirement..."
             value={formData.logic}
             onChange={(e) => setFormData({ ...formData, logic: e.target.value })}
@@ -103,7 +135,11 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) =>
         <button
           type="submit"
           disabled={isLoading}
-          className="w-full bg-gradient-to-r from-axis-burgundy to-axis-red hover:brightness-110 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-axis-burgundy/20 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed group"
+          className={`w-full hover:brightness-110 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed group ${
+            isDark
+              ? 'bg-gradient-to-r from-axis-red to-axis-burgundy shadow-lg shadow-black/30'
+              : 'bg-gradient-to-r from-axis-burgundy to-axis-red shadow-lg shadow-axis-burgundy/20'
+          }`}
         >
           {isLoading ? (
             <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
