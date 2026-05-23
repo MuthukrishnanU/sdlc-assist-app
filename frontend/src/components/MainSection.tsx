@@ -20,7 +20,7 @@ interface MainSectionProps {
   formData: any | null;
 }
 
-const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, apiBaseUrl, formData }) => {
+const MainSection: React.FC<MainSectionProps> = ({ code, isLoading, apiBaseUrl, formData }) => {
   const { isDark } = useTheme();
   const [displayedInsights, setDisplayedInsights] = React.useState<DQInsights | null>(null);
   const [simulatedData, setSimulatedData] = React.useState<any[]>([]);
@@ -50,7 +50,7 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
       });
       setSimulatedData(response.data.dataframe);
       setColumnDetailsMap(response.data.column_details);
-      setDisplayedInsights(insights);
+      setDisplayedInsights(response.data.dq_insights);
       if (formData.columns && formData.columns.length > 0) {
         setSelectedColumn(formData.columns[0]);
       }

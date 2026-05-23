@@ -8,6 +8,7 @@ import csv
 import io
 import base64
 import httpx
+import json
 import os
 from pymongo import MongoClient
 from dotenv import load_dotenv
@@ -156,7 +157,57 @@ async def simulate_data(request: SimulationRequest):
                     "classification": "public"
                 }
 
-        return SimulationResponse(dataframe=final_dataframe, column_details=column_details)
+        # Calculate real Data Quality insights from the queried dataset
+        row_count = len(final_dataframe)
+        null_count = 0
+        for r in final_dataframe:
+            for val in r.values():
+                if val is None or val == "":
+                    null_count += 1
+
+        row_strings = [json.dumps(row, sort_keys=True) for row in final_dataframe]
+        duplicate_count = len(row_strings) - len(set(row_strings))
+
+        # Find primary numeric column (prefer measures)
+        numeric_col = None
+        for col, details in column_details.items():
+            if details["role"] == "measure" and details["data_type"] in ("integer", "double", "float"):
+                numeric_col = col
+                break
+        if not numeric_col:
+            for col, details in column_details.items():
+                if details["data_type"] in ("integer", "double", "float"):
+                    numeric_col = col
+                    break
+
+        minimum = None
+        maximum = None
+        average = None
+
+        if numeric_col:
+            numeric_values = []
+            for r in final_dataframe:
+                val = r.get(numeric_col)
+                if val is not None:
+                    try:
+                        numeric_values.append(float(val))
+                    except (ValueError, TypeError):
+                        pass
+            if numeric_values:
+                minimum = min(numeric_values)
+                maximum = max(numeric_values)
+                average = round(sum(numeric_values) / len(numeric_values), 2)
+
+        dq_insights = {
+            "row_count": row_count,
+            "null_values": null_count,
+            "duplicate_rows": duplicate_count,
+            "minimum": minimum,
+            "maximum": maximum,
+            "average": average
+        }
+
+        return SimulationResponse(dataframe=final_dataframe, column_details=column_details, dq_insights=dq_insights)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

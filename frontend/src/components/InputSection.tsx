@@ -21,7 +21,7 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
   });
 
   const [formData, setFormData] = React.useState({
-    format: 'SQL',
+    format: 'PySpark/SparkSQL',
     tables: [] as string[],
     columns: [] as string[],
     logic: '',
@@ -45,7 +45,7 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
     fetchMetadata();
   }, [apiBaseUrl]);
 
-  const formats = ['PySpark/SparkSQL', 'SQL', 'MongoDB NoSQL', 'Firestore SQL', 'Firestore NoSQL', 'BigQuery SQL', 'Snowflake SQL'];
+  const formats = ['PySpark/SparkSQL', 'SQL', 'Apache Iceberg', 'MongoDB NoSQL', 'Firestore SQL', 'Firestore NoSQL', 'BigQuery SQL', 'Snowflake SQL', 'Oracle SQL', 'Cassandra Query Language (CQL)', 'DynamoDB', 'Redis', 'Elasticsearch Query DSL', 'Firebase Realtime Database', 'Apache Hive', 'Apache HBase', 'Apache Kudu', 'PostgreSQL', 'MySQL', 'MariaDB', 'SQL Server', 'SAP HANA', 'IBM Db2', 'Azure SQL Database', 'Azure Cosmos DB', 'Azure Data Lake Storage', 'Azure Synapse Analytics', 'Amazon Redshift', 'Apache Flink', 'Apache Storm'];
   const availableTables = Object.keys(dbMetadata);
   const availableColumns = React.useMemo(() => {
     return Array.from(new Set(formData.tables.flatMap(table => dbMetadata[table] || [])));
@@ -80,20 +80,18 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
         {/* Dark Mode Toggle */}
         <button
           onClick={toggleTheme}
-          className={`ml-auto relative w-14 h-7 rounded-full transition-all duration-400 flex items-center ${
-            isDark
-              ? 'bg-axis-burgundy-dark border border-axis-red/30 shadow-[0_0_12px_rgba(235,17,101,0.15)]'
-              : 'bg-gray-200 border border-gray-300'
-          }`}
+          className={`ml-auto relative w-14 h-7 rounded-full transition-all duration-400 flex items-center ${isDark
+            ? 'bg-axis-burgundy-dark border border-axis-red/30 shadow-[0_0_12px_rgba(235,17,101,0.15)]'
+            : 'bg-gray-200 border border-gray-300'
+            }`}
           aria-label="Toggle dark mode"
           title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
         >
           <div
-            className={`absolute w-5 h-5 rounded-full flex items-center justify-center transition-all duration-300 ${
-              isDark
-                ? 'translate-x-[30px] bg-axis-red shadow-lg shadow-axis-red/30'
-                : 'translate-x-1 bg-white shadow-md'
-            }`}
+            className={`absolute w-5 h-5 rounded-full flex items-center justify-center transition-all duration-300 ${isDark
+              ? 'translate-x-[30px] bg-axis-red shadow-lg shadow-axis-red/30'
+              : 'translate-x-1 bg-white shadow-md'
+              }`}
           >
             {isDark ? (
               <Moon className="w-3 h-3 text-white" />
@@ -159,11 +157,10 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
             <Type className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} /> Logic in English
           </label>
           <textarea
-            className={`w-full rounded-lg px-3 py-2 text-sm h-24 focus:outline-none focus:ring-2 transition-all resize-none ${
-              isDark
-                ? 'bg-white/10 border border-white/10 focus:ring-axis-red/30 text-white placeholder-white/30'
-                : 'bg-white border border-gray-200 focus:ring-axis-burgundy/20 text-gray-700 placeholder-gray-400'
-            }`}
+            className={`w-full rounded-lg px-3 py-2 text-sm h-24 focus:outline-none focus:ring-2 transition-all resize-none ${isDark
+              ? 'bg-white/10 border border-white/10 focus:ring-axis-red/30 text-white placeholder-white/30'
+              : 'bg-white border border-gray-200 focus:ring-axis-burgundy/20 text-gray-700 placeholder-gray-400'
+              }`}
             placeholder="Describe your requirement..."
             value={formData.logic}
             onChange={(e) => setFormData({ ...formData, logic: e.target.value })}
@@ -173,11 +170,10 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
         <button
           type="submit"
           disabled={isLoading}
-          className={`w-full hover:brightness-110 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed group ${
-            isDark
-              ? 'bg-gradient-to-r from-axis-red to-axis-burgundy shadow-lg shadow-black/30'
-              : 'bg-gradient-to-r from-axis-burgundy to-axis-red shadow-lg shadow-axis-burgundy/20'
-          }`}
+          className={`w-full hover:brightness-110 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed group ${isDark
+            ? 'bg-gradient-to-r from-axis-red to-axis-burgundy shadow-lg shadow-black/30'
+            : 'bg-gradient-to-r from-axis-burgundy to-axis-red shadow-lg shadow-axis-burgundy/20'
+            }`}
         >
           {isLoading ? (
             <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />

@@ -35,6 +35,7 @@ class ColumnMetadata(BaseModel):
 class SimulationResponse(BaseModel):
     dataframe: List[dict]
     column_details: dict # Mapping of column_name -> ColumnMetadata
+    dq_insights: DQInsights
 
 class GitHubPushRequest(BaseModel):
     dataframe: List[dict]
