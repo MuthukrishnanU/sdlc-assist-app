@@ -1,5 +1,5 @@
 import React from 'react';
-import { Terminal, Activity, Rocket, GitBranch, CheckCircle2, Search, Info, Database } from 'lucide-react';
+import { Terminal, Activity, Rocket, GitBranch, CheckCircle2, Search, Info, Database, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import axios from 'axios';
 
@@ -29,6 +29,7 @@ const MainSection: React.FC<MainSectionProps> = ({ code, isLoading, apiBaseUrl, 
   const [selectedColumn, setSelectedColumn] = React.useState('');
   const [isSimulating, setIsSimulating] = React.useState(false);
   const [isPushing, setIsPushing] = React.useState(false);
+  const [currentPage, setCurrentPage] = React.useState(1);
 
   React.useEffect(() => {
     setDisplayedInsights(null);
@@ -37,7 +38,29 @@ const MainSection: React.FC<MainSectionProps> = ({ code, isLoading, apiBaseUrl, 
     setSearchQuery('');
     setSelectedColumn('');
     setIsPushing(false);
+    setCurrentPage(1);
   }, [code]);
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  const filteredRecords = React.useMemo(() => {
+    return simulatedData.filter(row => {
+      if (!searchQuery) return true;
+      const query = searchQuery.toLowerCase();
+      return Object.values(row).some(val => 
+        val !== null && val !== undefined && String(val).toLowerCase().includes(query)
+      );
+    });
+  }, [simulatedData, searchQuery]);
+
+  const totalPages = Math.ceil(filteredRecords.length / 10);
+
+  const paginatedRecords = React.useMemo(() => {
+    const startIndex = (currentPage - 1) * 10;
+    return filteredRecords.slice(startIndex, startIndex + 10);
+  }, [filteredRecords, currentPage]);
 
   const handleRunCode = async () => {
     if (!code || !formData) return;
@@ -262,26 +285,14 @@ const MainSection: React.FC<MainSectionProps> = ({ code, isLoading, apiBaseUrl, 
                   </thead>
                   <tbody className={`divide-y transition-colors duration-400 ${isDark ? 'divide-white/10 text-gray-200' : 'divide-gray-100 text-gray-700'
                     }`}>
-                    {(() => {
-                      const filtered = simulatedData.filter(row => {
-                        if (!searchQuery) return true;
-                        const query = searchQuery.toLowerCase();
-                        return Object.values(row).some(val =>
-                          val !== null && val !== undefined && String(val).toLowerCase().includes(query)
-                        );
-                      });
-
-                      if (filtered.length === 0) {
-                        return (
-                          <tr>
-                            <td colSpan={formData?.columns.length} className="px-6 py-8 text-center italic opacity-50">
-                              No matching records found.
-                            </td>
-                          </tr>
-                        );
-                      }
-
-                      return filtered.slice(0, 10).map((row, index) => (
+                    {paginatedRecords.length === 0 ? (
+                      <tr>
+                        <td colSpan={formData?.columns.length} className="px-6 py-8 text-center italic opacity-50">
+                          No matching records found.
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedRecords.map((row, index) => (
                         <tr key={index} className={`hover:bg-black/5 transition-colors duration-200`}>
                           {formData?.columns.map((col: string) => (
                             <td key={col} className="px-6 py-3.5 font-mono text-xs whitespace-nowrap">
@@ -289,26 +300,48 @@ const MainSection: React.FC<MainSectionProps> = ({ code, isLoading, apiBaseUrl, 
                             </td>
                           ))}
                         </tr>
-                      ));
-                    })()}
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
-              <div className={`px-6 py-3 border-t text-xs font-semibold flex items-center justify-between ${isDark ? 'bg-black/10 border-white/10 text-white/40' : 'bg-gray-50 border-gray-100 text-gray-500'
+              <div className={`px-6 py-4 border-t text-xs font-semibold flex flex-col sm:flex-row items-center justify-between gap-4 ${isDark ? 'bg-black/20 border-white/10 text-white/60' : 'bg-gray-50 border-gray-100 text-gray-500'
                 }`}>
                 <span>
-                  Showing up to 10 of {
-                    simulatedData.filter(row => {
-                      if (!searchQuery) return true;
-                      const query = searchQuery.toLowerCase();
-                      return Object.values(row).some(val =>
-                        val !== null && val !== undefined && String(val).toLowerCase().includes(query)
-                      );
-                    }).length
-                  } matching records (Simulated pool: {simulatedData.length})
+                  Showing {filteredRecords.length > 0 ? (currentPage - 1) * 10 + 1 : 0} to{' '}
+                  {Math.min(currentPage * 10, filteredRecords.length)} of{' '}
+                  <span className={`font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{filteredRecords.length}</span>{' '}
+                  matching records (Simulated pool: {simulatedData.length})
                 </span>
-                {simulatedData.length > 10 && (
-                  <span className="italic">Use the search box above to query other records</span>
+                
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1}
+                      className={`p-1.5 rounded-lg border transition-all disabled:opacity-30 disabled:cursor-not-allowed ${isDark
+                        ? 'border-white/10 bg-white/5 hover:bg-white/10 text-white'
+                        : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
+                        }`}
+                      title="Previous Page"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="min-w-[60px] text-center">
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                      disabled={currentPage === totalPages}
+                      className={`p-1.5 rounded-lg border transition-all disabled:opacity-30 disabled:cursor-not-allowed ${isDark
+                        ? 'border-white/10 bg-white/5 hover:bg-white/10 text-white'
+                        : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
+                        }`}
+                      title="Next Page"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
