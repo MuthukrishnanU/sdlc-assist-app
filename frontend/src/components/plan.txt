@@ -1,0 +1,10 @@
+1. Create 5 tables with at least 1000 records for customer and nudge details/transaction
+2. Semantic layer Meta store to be created for these 5 tables
+3. Columns to be dynamically mapped with the tables
+4. "Run Code" should be at the bottom of "Generated Code" section.
+5. Output table should be displayed with the 5-6 rows with the features of selected Columns (searchable)
+6. In the output, a dropdown should be available to select the columns and display the details of the selected columns
+7. Similary, DQ insights should be shown for the selected table output
+8. Connect with GitHub (push)
+9. No limit while pushing code to GitHub
+10. Create PPT as per the template

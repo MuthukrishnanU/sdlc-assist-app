@@ -4,8 +4,9 @@ import { ThemeProvider } from './ThemeContext';
 import InputSection from './components/InputSection';
 import MainSection from './components/MainSection';
 
-//const API_BASE_URL = 'http://localhost:8000';
-const API_BASE_URL = 'https://sdlc-assist-app-be.onrender.com';
+const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:8000'
+  : 'https://sdlc-assist-app-be.onrender.com';
 
 function App() {
   const [generatedCode, setGeneratedCode] = React.useState<string | null>(null);
@@ -33,7 +34,7 @@ function App() {
   return (
     <ThemeProvider>
       <div className="flex h-screen overflow-hidden">
-        <InputSection onGenerate={handleGenerate} isLoading={loading} />
+        <InputSection onGenerate={handleGenerate} isLoading={loading} apiBaseUrl={API_BASE_URL} />
         <MainSection
           code={generatedCode}
           insights={dqInsights}

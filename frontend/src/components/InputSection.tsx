@@ -7,10 +7,19 @@ import CustomDropdown from './CustomDropdown';
 interface InputSectionProps {
   onGenerate: (data: any) => void;
   isLoading: boolean;
+  apiBaseUrl: string;
 }
 
-const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) => {
+const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiBaseUrl }) => {
   const { isDark, toggleTheme } = useTheme();
+  const [dbMetadata, setDbMetadata] = React.useState<Record<string, string[]>>({
+    'customerDetails': ['customer_id', 'first_name', 'last_name', 'email', 'phone', 'date_of_birth', 'kyc_status', 'credit_score', 'created_at'],
+    'accountBalances': ['account_id', 'customer_id', 'account_type', 'current_balance', 'available_balance', 'currency', 'branch_code', 'last_updated', 'is_active'],
+    'loanInfo': ['loan_id', 'customer_id', 'loan_type', 'principal_amount', 'interest_rate', 'tenure_months', 'start_date', 'loan_status', 'remaining_balance'],
+    'transactionsInfo': ['transaction_id', 'account_id', 'customer_id', 'amount', 'transaction_type', 'channel', 'timestamp', 'merchant_name', 'status'],
+    'dataQualityLogs': ['log_id', 'target_table', 'field_checked', 'rule_type', 'records_scanned', 'failed_count', 'execution_time_ms', 'run_date', 'status']
+  });
+
   const [formData, setFormData] = React.useState({
     format: 'SQL',
     tables: [] as string[],
@@ -19,9 +28,28 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) =>
     sample_data_size: 100
   });
 
+  React.useEffect(() => {
+    const fetchMetadata = async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/metadata`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+            setDbMetadata(data);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch dynamic MongoDB metadata, using default static schema:', err);
+      }
+    };
+    fetchMetadata();
+  }, [apiBaseUrl]);
+
   const formats = ['PySpark/SparkSQL', 'SQL', 'MongoDB NoSQL', 'Firestore SQL', 'Firestore NoSQL', 'BigQuery SQL', 'Snowflake SQL'];
-  const availableTables = ['Customer_ID', 'Loan_Info', 'Transactions', 'Accounts'];
-  const availableColumns = ['Customer_ID', 'Loan_Amount', 'Transaction_Date', 'Status', 'Balance'];
+  const availableTables = Object.keys(dbMetadata);
+  const availableColumns = React.useMemo(() => {
+    return Array.from(new Set(formData.tables.flatMap(table => dbMetadata[table] || [])));
+  }, [formData.tables, dbMetadata]);
   const sampleSizes = [100, 250, 500, 1000];
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -91,7 +119,17 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading }) =>
           label="Select Tables"
           options={availableTables}
           selected={formData.tables}
-          onChange={(selected) => setFormData({ ...formData, tables: selected })}
+          onChange={(selected) => {
+            const newAvailableColumns = Array.from(
+              new Set(selected.flatMap(table => dbMetadata[table] || []))
+            );
+            const filteredColumns = formData.columns.filter(col => newAvailableColumns.includes(col));
+            setFormData({
+              ...formData,
+              tables: selected,
+              columns: filteredColumns
+            });
+          }}
           placeholder="Choose tables..."
           icon={<Database className="w-3 h-3" />}
         />
