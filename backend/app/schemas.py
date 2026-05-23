@@ -19,3 +19,26 @@ class DQInsights(BaseModel):
 class CodeGenerationResponse(BaseModel):
     generated_code: str
     dq_insights: DQInsights
+
+class SimulationRequest(BaseModel):
+    tables: List[str]
+    columns: List[str]
+    sample_data_size: int
+
+class ColumnMetadata(BaseModel):
+    friendly_name: str
+    description: str
+    data_type: str
+    role: str
+    classification: str
+
+class SimulationResponse(BaseModel):
+    dataframe: List[dict]
+    column_details: dict # Mapping of column_name -> ColumnMetadata
+
+class GitHubPushRequest(BaseModel):
+    dataframe: List[dict]
+    generated_code: Optional[str] = None
+    format: Optional[str] = None
+    repo_name: Optional[str] = None
+    file_name: Optional[str] = None

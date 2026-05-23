@@ -11,12 +11,14 @@ const API_BASE_URL = window.location.hostname === 'localhost' || window.location
 function App() {
   const [generatedCode, setGeneratedCode] = React.useState<string | null>(null);
   const [dqInsights, setDqInsights] = React.useState<any | null>(null);
+  const [lastFormData, setLastFormData] = React.useState<any | null>(null);
   const [loading, setLoading] = React.useState(false);
 
   const handleGenerate = async (formData: any) => {
     setLoading(true);
     setGeneratedCode(null);
     setDqInsights(null);
+    setLastFormData(formData);
 
     try {
       const response = await axios.post(`${API_BASE_URL}/generate`, formData);
@@ -39,6 +41,8 @@ function App() {
           code={generatedCode}
           insights={dqInsights}
           isLoading={loading}
+          apiBaseUrl={API_BASE_URL}
+          formData={lastFormData}
         />
       </div>
     </ThemeProvider>
