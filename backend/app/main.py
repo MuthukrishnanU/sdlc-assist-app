@@ -207,7 +207,74 @@ async def simulate_data(request: SimulationRequest):
             "average": average
         }
 
-        return SimulationResponse(dataframe=final_dataframe, column_details=column_details, dq_insights=dq_insights)
+        # Calculate DQ insights for each individual selected table
+        table_dq_insights = {}
+        for table in request.tables:
+            table_records = data_by_table.get(table, [])
+            
+            # Retrieve fields from semanticMetaStore to find the numeric columns
+            meta_doc = db['semanticMetaStore'].find_one({"collection_name": table})
+            meta_fields = meta_doc.get("fields", []) if meta_doc else []
+            
+            # Calculate row count
+            t_row_count = len(table_records)
+            
+            # Calculate null count
+            t_null_count = 0
+            for r in table_records:
+                for val in r.values():
+                    if val is None or val == "":
+                        t_null_count += 1
+                        
+            # Calculate duplicates
+            t_row_strings = [json.dumps(row, sort_keys=True) for row in table_records]
+            t_duplicate_count = len(t_row_strings) - len(set(t_row_strings))
+            
+            # Find primary numeric column for this table
+            t_numeric_col = None
+            for field in meta_fields:
+                if field.get("role") == "measure" and field.get("data_type") in ("integer", "double", "float"):
+                    t_numeric_col = field.get("field_name")
+                    break
+            if not t_numeric_col:
+                for field in meta_fields:
+                    if field.get("data_type") in ("integer", "double", "float"):
+                        t_numeric_col = field.get("field_name")
+                        break
+                        
+            t_minimum = None
+            t_maximum = None
+            t_average = None
+            
+            if t_numeric_col:
+                t_numeric_values = []
+                for r in table_records:
+                    val = r.get(t_numeric_col)
+                    if val is not None:
+                        try:
+                            t_numeric_values.append(float(val))
+                        except (ValueError, TypeError):
+                            pass
+                if t_numeric_values:
+                    t_minimum = min(t_numeric_values)
+                    t_maximum = max(t_numeric_values)
+                    t_average = round(sum(t_numeric_values) / len(t_numeric_values), 2)
+                    
+            table_dq_insights[table] = {
+                "row_count": t_row_count,
+                "null_values": t_null_count,
+                "duplicate_rows": t_duplicate_count,
+                "minimum": t_minimum,
+                "maximum": t_maximum,
+                "average": t_average
+            }
+
+        return SimulationResponse(
+            dataframe=final_dataframe,
+            column_details=column_details,
+            dq_insights=dq_insights,
+            table_dq_insights=table_dq_insights
+        )
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

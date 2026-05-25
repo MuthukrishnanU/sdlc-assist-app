@@ -20,9 +20,11 @@ interface MainSectionProps {
   formData: any | null;
 }
 
-const MainSection: React.FC<MainSectionProps> = ({ code, isLoading, apiBaseUrl, formData }) => {
+const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, apiBaseUrl, formData }) => {
   const { isDark } = useTheme();
-  const [displayedInsights, setDisplayedInsights] = React.useState<DQInsights | null>(null);
+  const [outputTableInsights, setOutputTableInsights] = React.useState<DQInsights | null>(null);
+  const [tableInsightsMap, setTableInsightsMap] = React.useState<Record<string, DQInsights>>({});
+  const [selectedDqTable, setSelectedDqTable] = React.useState<string>('Output Table');
   const [simulatedData, setSimulatedData] = React.useState<any[]>([]);
   const [columnDetailsMap, setColumnDetailsMap] = React.useState<Record<string, any>>({});
   const [searchQuery, setSearchQuery] = React.useState('');
@@ -32,14 +34,23 @@ const MainSection: React.FC<MainSectionProps> = ({ code, isLoading, apiBaseUrl, 
   const [currentPage, setCurrentPage] = React.useState(1);
 
   React.useEffect(() => {
-    setDisplayedInsights(null);
+    setOutputTableInsights(insights);
+    setTableInsightsMap({});
+    setSelectedDqTable('Output Table');
     setSimulatedData([]);
     setColumnDetailsMap({});
     setSearchQuery('');
     setSelectedColumn('');
     setIsPushing(false);
     setCurrentPage(1);
-  }, [code]);
+  }, [code, insights]);
+
+  const activeInsights = React.useMemo(() => {
+    if (selectedDqTable === 'Output Table') {
+      return outputTableInsights;
+    }
+    return tableInsightsMap[selectedDqTable] || null;
+  }, [selectedDqTable, outputTableInsights, tableInsightsMap]);
 
   React.useEffect(() => {
     setCurrentPage(1);
@@ -73,7 +84,10 @@ const MainSection: React.FC<MainSectionProps> = ({ code, isLoading, apiBaseUrl, 
       });
       setSimulatedData(response.data.dataframe);
       setColumnDetailsMap(response.data.column_details);
-      setDisplayedInsights(response.data.dq_insights);
+      setOutputTableInsights(response.data.dq_insights);
+      if (response.data.table_dq_insights) {
+        setTableInsightsMap(response.data.table_dq_insights);
+      }
       if (formData.columns && formData.columns.length > 0) {
         setSelectedColumn(formData.columns[0]);
       }
@@ -350,17 +364,38 @@ const MainSection: React.FC<MainSectionProps> = ({ code, isLoading, apiBaseUrl, 
 
         {/* DQ Insights Section */}
         <section className="space-y-4">
-          <div className={`flex items-center gap-2 font-semibold uppercase text-xs tracking-widest ${isDark ? 'text-axis-cream' : 'text-axis-red'}`}>
-            <Activity className="w-4 h-4" /> Data Quality Insights
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className={`flex items-center gap-2 font-semibold uppercase text-xs tracking-widest ${isDark ? 'text-axis-cream' : 'text-axis-red'}`}>
+              <Activity className="w-4 h-4" /> Data Quality Insights
+            </div>
+            {formData?.tables && formData.tables.length > 0 && (
+              <select
+                value={selectedDqTable}
+                onChange={(e) => setSelectedDqTable(e.target.value)}
+                className={`px-3 py-1.5 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
+                    ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
+                    : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'
+                  }`}
+              >
+                <option value="Output Table" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
+                  Output Table
+                </option>
+                {formData.tables.map((table: string) => (
+                  <option key={table} value={table} className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
+                    {table}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
-              { label: 'Row Count', value: displayedInsights?.row_count, icon: HashIcon },
-              { label: 'Null Values', value: displayedInsights?.null_values, darkColor: 'text-red-400', lightColor: 'text-red-600' },
-              { label: 'Duplicate Rows', value: displayedInsights?.duplicate_rows, darkColor: 'text-orange-400', lightColor: 'text-orange-600' },
-              { label: 'Minimum', value: displayedInsights?.minimum },
-              { label: 'Maximum', value: displayedInsights?.maximum },
-              { label: 'Average', value: displayedInsights?.average },
+              { label: 'Row Count', value: activeInsights?.row_count, icon: HashIcon },
+              { label: 'Null Values', value: activeInsights?.null_values, darkColor: 'text-red-400', lightColor: 'text-red-600' },
+              { label: 'Duplicate Rows', value: activeInsights?.duplicate_rows, darkColor: 'text-orange-400', lightColor: 'text-orange-600' },
+              { label: 'Minimum', value: activeInsights?.minimum },
+              { label: 'Maximum', value: activeInsights?.maximum },
+              { label: 'Average', value: activeInsights?.average },
             ].map((item, idx) => (
               <div key={idx} className={`p-5 rounded-xl transition-colors group shadow-sm duration-400 ${isDark
                 ? 'bg-axis-burgundy-dark/50 border border-white/10 hover:border-axis-red/40'

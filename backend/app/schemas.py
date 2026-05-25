@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 class CodeGenerationRequest(BaseModel):
     format: str = Field(..., description="Target code format (e.g., SQL, PySpark)")
@@ -36,6 +36,7 @@ class SimulationResponse(BaseModel):
     dataframe: List[dict]
     column_details: dict # Mapping of column_name -> ColumnMetadata
     dq_insights: DQInsights
+    table_dq_insights: Optional[Dict[str, DQInsights]] = None
 
 class GitHubPushRequest(BaseModel):
     dataframe: List[dict]
