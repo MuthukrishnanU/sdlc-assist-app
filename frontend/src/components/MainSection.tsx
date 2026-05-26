@@ -34,6 +34,7 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
   const [isSimulating, setIsSimulating] = React.useState(false);
   const [isPushing, setIsPushing] = React.useState(false);
   const [currentPage, setCurrentPage] = React.useState(1);
+  const [isExplanationOpen, setIsExplanationOpen] = React.useState(false);
 
   // GitHub push configuration states
   const [podName, setPodName] = React.useState('data-pod-1');
@@ -43,6 +44,7 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
 
   React.useEffect(() => {
     setOutputTableInsights(insights);
+    setIsExplanationOpen(false);
     setTableInsightsMap({});
     setSelectedDqTable('Output Table');
     setSelectedDqColumn('');
@@ -119,7 +121,9 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
         tables: formData.tables,
         columns: formData.columns,
         sample_data_size: formData.sample_data_size,
-        logic: formData.logic
+        logic: formData.logic,
+        generated_code: code,
+        format: formData.format
       });
       setSimulationData(response.data);
       setSimulatedData(response.data.dataframe);
@@ -224,7 +228,19 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
         </section>
 
         {/* Run Code Button Container */}
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-3">
+          {simulationData?.execution_explanation && (
+            <button
+              onClick={() => setIsExplanationOpen(true)}
+              className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border ${isDark
+                ? 'bg-axis-red/20 hover:bg-axis-red/30 text-white border-axis-red/30'
+                : 'bg-red-50 hover:bg-red-100 text-axis-burgundy border-red-200'
+                }`}
+            >
+              <Info className="w-4 h-4" />
+              Execution Explanation
+            </button>
+          )}
           <button
             onClick={handleRunCode}
             disabled={!code || isSimulating || isLoading}
@@ -315,12 +331,32 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                         Role: {columnDetailsMap[selectedColumn].role}
                       </span>
                       <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${columnDetailsMap[selectedColumn].classification.toUpperCase() === 'PII' || columnDetailsMap[selectedColumn].classification.toUpperCase() === 'PRIVATE'
-                        ? (isDark ? 'bg-red-500/20 text-red-300' : 'bg-red-50 text-red-600')
-                        : (isDark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-600')
+                          ? (isDark ? 'bg-red-500/20 text-red-300' : 'bg-red-50 text-red-600')
+                          : (isDark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-600')
                         }`}>
                         Classification: {columnDetailsMap[selectedColumn].classification}
                       </span>
                     </div>
+
+                    {columnDetailsMap[selectedColumn].lineage && (
+                      <div className="mt-4 pt-4 border-t border-dashed border-gray-200/50 dark:border-white/10 space-y-2">
+                        <div className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-white/40' : 'text-gray-400'}`}>
+                          Data Lineage
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap text-xs font-semibold">
+                          <span className={`px-2 py-0.5 rounded font-mono ${isDark ? 'bg-white/5 text-axis-cream' : 'bg-gray-100 text-axis-burgundy'}`}>
+                            {columnDetailsMap[selectedColumn].lineage.source_tables.join(', ')}
+                          </span>
+                          <span className="opacity-50">→</span>
+                          <span className={`px-2 py-0.5 rounded font-mono ${isDark ? 'bg-white/5 text-axis-cream' : 'bg-gray-100 text-axis-burgundy'}`}>
+                            {columnDetailsMap[selectedColumn].lineage.source_columns.join(', ')}
+                          </span>
+                        </div>
+                        <p className={`text-xs italic leading-relaxed ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
+                          {columnDetailsMap[selectedColumn].lineage.transformation}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -586,6 +622,138 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
           </button>
         </div>
       </div>
+
+      {/* Execution Explanation Modal */}
+      {isExplanationOpen && simulationData?.execution_explanation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className={`w-full max-w-2xl rounded-2xl shadow-2xl border flex flex-col max-h-[85vh] transition-colors duration-400 ${isDark
+            ? 'bg-axis-burgundy-deep border-white/10 text-white'
+            : 'bg-white border-gray-200 text-gray-800'
+            }`}>
+            
+            {/* Header */}
+            <div className="px-6 py-4 border-b flex items-center justify-between border-dashed border-gray-200/50 dark:border-white/10">
+              <div className="flex items-center gap-2">
+                <Activity className={`w-5 h-5 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />
+                <h3 className="font-bold text-lg tracking-tight">Execution Explanation</h3>
+              </div>
+              <button
+                onClick={() => setIsExplanationOpen(false)}
+                className={`p-1.5 rounded-lg text-sm transition-all ${isDark ? 'hover:bg-white/10 text-white/60 hover:text-white' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-800'}`}
+              >
+                ✕
+              </button>
+            </div>
+            
+            {/* Content */}
+            <div className="p-6 overflow-y-auto space-y-5 text-sm leading-relaxed">
+              
+              {/* Stats row */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className={`p-4 rounded-xl border ${isDark ? 'bg-white/5 border-white/5' : 'bg-gray-50 border-gray-100'}`}>
+                  <div className="text-[10px] font-bold uppercase tracking-wider opacity-60">Time Elapsed</div>
+                  <div className="text-xl font-bold mt-1 text-emerald-500">
+                    {simulationData.execution_explanation.execution_time_ms} ms
+                  </div>
+                </div>
+                <div className={`p-4 rounded-xl border ${isDark ? 'bg-white/5 border-white/5' : 'bg-gray-50 border-gray-100'}`}>
+                  <div className="text-[10px] font-bold uppercase tracking-wider opacity-60">Records Processed</div>
+                  <div className="text-xl font-bold mt-1">
+                    {simulationData.execution_explanation.records_processed}
+                  </div>
+                </div>
+                <div className={`p-4 rounded-xl border ${isDark ? 'bg-white/5 border-white/5' : 'bg-gray-50 border-gray-100'}`}>
+                  <div className="text-[10px] font-bold uppercase tracking-wider opacity-60">Execution Cost</div>
+                  <div className="text-xs font-semibold mt-1 leading-snug">
+                    {simulationData.execution_explanation.execution_cost.includes("0.00") ? "FREE ($0.00)" : "EST. $0.0065"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Query Executed */}
+              <div className="space-y-1.5">
+                <div className="font-bold text-xs uppercase tracking-wider opacity-70">Executed Query / Code</div>
+                <div className={`p-4 rounded-xl font-mono text-xs overflow-x-auto max-h-40 border ${isDark
+                  ? 'bg-black/40 border-white/5 text-gray-300'
+                  : 'bg-gray-50 border-gray-200 text-gray-700'
+                  }`}>
+                  <pre><code>{simulationData.execution_explanation.query}</code></pre>
+                </div>
+              </div>
+
+              {/* Software Requirements */}
+              <div className="space-y-1.5">
+                <div className="font-bold text-xs uppercase tracking-wider opacity-70">Required Libraries & Packages</div>
+                <div className="flex flex-wrap gap-2">
+                  {simulationData.execution_explanation.software_requirements.map((req: string, idx: number) => (
+                    <span key={idx} className={`text-xs px-2.5 py-1 rounded-lg border font-medium ${isDark
+                      ? 'bg-white/5 border-white/10 text-gray-200'
+                      : 'bg-gray-100 border-gray-200 text-gray-700'
+                      }`}>
+                      {req}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Steps to Execute */}
+              <div className="space-y-1.5">
+                <div className="font-bold text-xs uppercase tracking-wider opacity-70">Steps to Run Code</div>
+                <ul className="space-y-1.5 pl-1">
+                  {simulationData.execution_explanation.execution_steps.map((step: string, idx: number) => (
+                    <li key={idx} className="flex gap-2.5 items-start">
+                      <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 ${isDark ? 'bg-white/10 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                        {idx + 1}
+                      </span>
+                      <span className={`text-xs ${isDark ? 'text-white/80' : 'text-gray-600'}`}>{step}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Special Instructions */}
+              {simulationData.execution_explanation.special_instructions && (
+                <div className={`p-4 rounded-xl border flex items-start gap-3 ${isDark
+                  ? 'bg-amber-500/10 border-amber-500/20 text-amber-300'
+                  : 'bg-amber-50 border-amber-200 text-amber-800'
+                  }`}>
+                  <Info className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-bold text-xs uppercase tracking-wider">Special Instructions</div>
+                    <p className="text-xs mt-1 leading-relaxed">{simulationData.execution_explanation.special_instructions}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Cost Detail (verbose) */}
+              <div className={`p-4 rounded-xl border flex items-start gap-3 ${isDark
+                ? 'bg-white/5 border-white/5 text-white/70'
+                : 'bg-gray-50 border-gray-100 text-gray-500'
+                }`}>
+                <div className="text-xs">
+                  <span className="font-bold uppercase tracking-wider text-[10px] block opacity-60 mb-0.5">Billing & Cost Analysis</span>
+                  {simulationData.execution_explanation.execution_cost}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t flex justify-end border-dashed border-gray-200/50 dark:border-white/10">
+              <button
+                onClick={() => setIsExplanationOpen(false)}
+                className={`px-5 py-2 rounded-xl text-xs font-semibold shadow transition-all ${isDark
+                  ? 'bg-white/10 hover:bg-white/15 text-white'
+                  : 'bg-gray-900 hover:bg-gray-800 text-white'
+                  }`}
+              >
+                Close
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 };

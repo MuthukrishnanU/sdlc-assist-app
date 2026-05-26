@@ -25,6 +25,13 @@ class SimulationRequest(BaseModel):
     columns: List[str]
     sample_data_size: int
     logic: Optional[str] = None
+    generated_code: Optional[str] = None
+    format: Optional[str] = None
+
+class LineageInfo(BaseModel):
+    source_tables: List[str]
+    source_columns: List[str]
+    transformation: str
 
 class ColumnMetadata(BaseModel):
     friendly_name: str
@@ -32,6 +39,16 @@ class ColumnMetadata(BaseModel):
     data_type: str
     role: str
     classification: str
+    lineage: Optional[LineageInfo] = None
+
+class ExecutionExplanation(BaseModel):
+    query: str
+    execution_time_ms: int
+    records_processed: int
+    software_requirements: List[str]
+    execution_steps: List[str]
+    special_instructions: Optional[str] = None
+    execution_cost: Optional[str] = None
 
 class SimulationResponse(BaseModel):
     dataframe: List[dict]
@@ -40,6 +57,7 @@ class SimulationResponse(BaseModel):
     table_dq_insights: Optional[Dict[str, DQInsights]] = None
     column_dq_insights: Optional[Dict[str, Dict[str, DQInsights]]] = None
     primary_keys: Optional[Dict[str, str]] = None
+    execution_explanation: Optional[ExecutionExplanation] = None
 
 class GitHubPushRequest(BaseModel):
     dataframe: List[dict]

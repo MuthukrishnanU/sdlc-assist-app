@@ -10,6 +10,7 @@ import base64
 import httpx
 import json
 import os
+import time
 from pymongo import MongoClient
 from dotenv import load_dotenv
 import dns.resolver
@@ -126,6 +127,8 @@ async def filter_records_by_logic(records: list, logic: str) -> list:
 
 @app.post("/simulate", response_model=SimulationResponse)
 async def simulate_data(request: SimulationRequest):
+    start_time = time.time()
+    records_processed = 0
     try:
         if not MONGODB_URI:
             raise HTTPException(status_code=500, detail="MONGODB_URI is not set in environment variables")
@@ -141,6 +144,7 @@ async def simulate_data(request: SimulationRequest):
             cursor = db[primary_table].find().limit(request.sample_data_size)
             primary_records = []
             for doc in cursor:
+                records_processed += 1
                 doc_cleaned = {}
                 for k, v in doc.items():
                     if k == '_id':
@@ -185,6 +189,7 @@ async def simulate_data(request: SimulationRequest):
                 cursor = db[table].find(query).limit(request.sample_data_size)
                 records = []
                 for doc in cursor:
+                    records_processed += 1
                     doc_cleaned = {}
                     for k, v in doc.items():
                         if k == '_id':
@@ -261,7 +266,8 @@ async def simulate_data(request: SimulationRequest):
                             "description": field["description"],
                             "data_type": field["data_type"],
                             "role": field["role"],
-                            "classification": field["classification"]
+                            "classification": field["classification"],
+                            "lineage": field.get("lineage")
                         }
 
         # Handle columns not explicitly detailed in meta store (fallback)
@@ -272,7 +278,12 @@ async def simulate_data(request: SimulationRequest):
                     "description": f"Attribute representing '{col}'.",
                     "data_type": "string",
                     "role": "dimension",
-                    "classification": "public"
+                    "classification": "public",
+                    "lineage": {
+                        "source_tables": request.tables[:1] if request.tables else ["unknown"],
+                        "source_columns": [col],
+                        "transformation": "Direct ingest (derived dataset lookup)"
+                    }
                 }
 
         # Calculate real Data Quality insights from the queried dataset
@@ -447,13 +458,69 @@ async def simulate_data(request: SimulationRequest):
                     table_col_insights[col] = calculate_col_dq(table_records, col)
             column_dq_insights[table] = table_col_insights
 
+        # Calculate execution time in milliseconds
+        execution_time_ms = int((time.time() - start_time) * 1000)
+        execution_time_ms = max(1, execution_time_ms)
+        
+        # Resolve query/code format details
+        fmt = (request.format or "SQL").upper()
+        
+        # Software requirements and steps based on execution language
+        if "PYSPARK" in fmt:
+            software_reqs = ["pyspark (Python package)", "Java Development Kit (JDK 8 or 11)", "Apache Spark 3.x", "MongoDB Spark Connector"]
+            exec_steps = [
+                "Install Java (JDK 8 or 11) and configure JAVA_HOME environment variable.",
+                "Install PySpark using pip: pip install pyspark dnspython",
+                "Save the generated PySpark script to a local python file (e.g. process_data.py).",
+                "Execute the script via command line: python process_data.py (or submit via spark-submit)."
+            ]
+            special_inst = "Make sure the Spark Session configuration is loaded with appropriate MongoDB jar packages if fetching live data from Atlas."
+        elif "MONGODB" in fmt or "NOSQL" in fmt or "PYTHON" in fmt:
+            software_reqs = ["pymongo (Python package)", "dnspython (Python package)", "Python 3.8+"]
+            exec_steps = [
+                "Set up a virtual environment and run command: pip install pymongo dnspython",
+                "Create a local environment file (.env) with your MONGODB_URI set.",
+                "Save the generated script into query.py.",
+                "Run the query script: python query.py"
+            ]
+            special_inst = "Check that your local IP address is whitelisted in your MongoDB Atlas cluster Network Access page."
+        else: # SQL
+            software_reqs = ["DuckDB, SQLite, or PostgreSQL server", "Database GUI client (DBeaver, pgAdmin or MongoDB Compass)"]
+            exec_steps = [
+                "Connect to your database engine (PostgreSQL, SQLite, etc.) using your database credentials.",
+                "Open a new SQL Editor tab.",
+                "Copy and paste the generated SQL code block.",
+                "Run/execute the query statement to fetch records."
+            ]
+            special_inst = "Ensure that the table schemas, names, and column bindings are loaded and match your target relational datastore."
+
+        # Compute cost estimation
+        if request.logic:
+            execution_cost = "Estimated cost: ~$0.0065 USD (OpenAI API GPT-4o compilation request: ~1k prompt tokens + ~100 completion tokens; local Python evaluation compute is free)."
+        else:
+            execution_cost = "Estimated cost: Negligible / $0.00 USD (runs locally using client-side execution; MongoDB read operations are covered by Atlas M0 Free Tier)."
+
+        # Fallback query text if not provided
+        query_text = request.generated_code or f"-- Code not generated yet. Select columns and click Generate first."
+
+        execution_explanation = {
+            "query": query_text,
+            "execution_time_ms": execution_time_ms,
+            "records_processed": records_processed,
+            "software_requirements": software_reqs,
+            "execution_steps": exec_steps,
+            "special_instructions": special_inst,
+            "execution_cost": execution_cost
+        }
+
         return SimulationResponse(
             dataframe=final_dataframe,
             column_details=column_details,
             dq_insights=dq_insights,
             table_dq_insights=table_dq_insights,
             column_dq_insights=column_dq_insights,
-            primary_keys=primary_keys
+            primary_keys=primary_keys,
+            execution_explanation=execution_explanation
         )
 
     except Exception as e:
