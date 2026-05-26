@@ -1,3 +1,4 @@
+ToDos-23May26:
 1. Create 5 tables with at least 1000 records for customer and nudge details/transaction
 2. Semantic layer Meta store to be created for these 5 tables
 3. Columns to be dynamically mapped with the tables
@@ -8,3 +9,17 @@
 8. Connect with GitHub (push)
 9. No limit while pushing code to GitHub
 10. Create PPT as per the template
+
+ToDos-26May26:
+Semantic Layer must have the following columns - column details, lineage, business glossary.
+Show lineage at the inspect column section as well.
+Need to correct the output table.
+Push code feature - Pod Name, Project Name and File Name
+What is the execution layer for executing the queries?
+DQI must be columnwise - by default Primary Key column must be displayed
+Queries - small, large, comples - considering 2-3 tables.
+List of Software to be used for running the queries?
+
+PPT:
+Problem Statement - 
+Solution Approach - 
