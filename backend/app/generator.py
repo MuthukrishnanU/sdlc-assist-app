@@ -46,9 +46,14 @@ class CodeGenerator:
             
             data = json.loads(response.choices[0].message.content)
             
+            prompt_tokens = response.usage.prompt_tokens if response.usage else 0
+            completion_tokens = response.usage.completion_tokens if response.usage else 0
+            
             return CodeGenerationResponse(
                 generated_code=data["generated_code"],
-                dq_insights=DQInsights(**data["dq_insights"])
+                dq_insights=DQInsights(**data["dq_insights"]),
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens
             )
         except Exception as e:
             print(f"Error in generation: {e}")
@@ -62,7 +67,9 @@ class CodeGenerator:
                     minimum=10.5,
                     maximum=500.0,
                     average=255.25
-                )
+                ),
+                prompt_tokens=0,
+                completion_tokens=0
             )
 
 generator = CodeGenerator()

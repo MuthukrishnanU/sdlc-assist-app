@@ -66,9 +66,9 @@ async def get_metadata():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-async def filter_records_by_logic(records: list, logic: str) -> list:
+async def filter_records_by_logic(records: list, logic: str) -> tuple:
     if not logic or not records:
-        return records
+        return records, 0, 0
     try:
         prompt = f"""
         You are a translation assistant that converts natural language data filtering logic into a safe Python boolean expression.
@@ -104,7 +104,7 @@ async def filter_records_by_logic(records: list, logic: str) -> list:
         result = json.loads(response.choices[0].message.content)
         expression_str = result.get("expression")
         if not expression_str:
-            return records
+            return records, 0, 0
             
         compiled_expr = compile(expression_str, "<string>", "eval")
         
@@ -119,10 +119,12 @@ async def filter_records_by_logic(records: list, logic: str) -> list:
                 # Ignore row evaluation errors
                 pass
                 
-        return filtered
+        p_tokens = response.usage.prompt_tokens if response.usage else 0
+        c_tokens = response.usage.completion_tokens if response.usage else 0
+        return filtered, p_tokens, c_tokens
     except Exception as e:
         print(f"Error in logic-aware filtering: {e}")
-        return records
+        return records, 0, 0
 
 
 @app.post("/simulate", response_model=SimulationResponse)
@@ -135,13 +137,81 @@ async def simulate_data(request: SimulationRequest):
         client = MongoClient(MONGODB_URI)
         db = client["bankingSdlcDB"]
 
+        # Fetch schemas for selected tables to help LLM optimize the query
+        schemas = {}
+        for table in request.tables:
+            meta_doc = db['semanticMetaStore'].find_one({"collection_name": table})
+            if meta_doc:
+                schemas[table] = [
+                    {
+                        "field_name": f["field_name"],
+                        "friendly_name": f["friendly_name"],
+                        "description": f["description"],
+                        "data_type": f["data_type"]
+                    }
+                    for f in meta_doc.get("fields", [])
+                ]
+            else:
+                sample = db[table].find_one()
+                if sample:
+                    schemas[table] = [{"field_name": k, "friendly_name": k.replace('_', ' ').title(), "description": f"Field '{k}' in {table}", "data_type": "string"} for k in sample.keys() if k != '_id']
+                else:
+                    schemas[table] = []
+
+        driving_table = request.tables[0] if request.tables else None
+        mongo_filter = {}
+        sim_prompt_tokens = 0
+        sim_completion_tokens = 0
+
+        if request.logic and request.tables:
+            try:
+                opt_prompt = f"""
+                You are a database query optimizer.
+                Analyze the user's natural language logic and the list of selected tables and their fields.
+                Determine which table should be the primary driving table to query first from MongoDB to retrieve the most relevant subset of data, and generate a MongoDB query filter for that table.
+                
+                Selected Tables: {request.tables}
+                
+                Table Schemas (fields and descriptions):
+                {json.dumps(schemas, indent=2)}
+                
+                User Logic: "{request.logic}"
+                
+                Rules:
+                1. The driving table must be one of the selected tables: {request.tables}.
+                2. If the logic contains filtering conditions on a specific table's fields (e.g., "loan type is Home" filters loanInfo; "KYC status is Verified" filters customerDetails), select that table as the driving table.
+                3. If multiple tables have filters, select the one that seems most restrictive (filters out the most records, e.g. loans or transactions). If none have filters, default to the first table in the selected list: {request.tables[0]}.
+                4. Generate a valid MongoDB query filter (JSON object) to apply to the driving table to retrieve only the records matching the logic's filters for that table.
+                5. The MongoDB query filter must only use fields belonging to the selected driving table.
+                6. Use standard MongoDB query operators if needed (like $eq, $gt, $in, $regex, etc.).
+                7. Reference the fields' descriptions which list typical values (e.g., loan_type description says "Type of loan (Home, Personal, Auto)", so use "Home" for Home Loan, "Personal" for Personal Loan, and "Auto" for Auto Loan). Keep the filter exact if it matches schema descriptions, otherwise use case-insensitive regex.
+                8. Return a JSON object with exactly these keys:
+                   - "driving_table": (string, name of the chosen driving table)
+                   - "mongo_filter": (object, the MongoDB query filter for the driving table. Return {{}} if no filters apply to this table)
+                """
+                
+                opt_response = await generator.client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": opt_prompt}],
+                    response_format={"type": "json_object"}
+                )
+                sim_prompt_tokens += opt_response.usage.prompt_tokens if opt_response.usage else 0
+                sim_completion_tokens += opt_response.usage.completion_tokens if opt_response.usage else 0
+                
+                opt_data = json.loads(opt_response.choices[0].message.content)
+                candidate_table = opt_data.get("driving_table")
+                if candidate_table in request.tables:
+                    driving_table = candidate_table
+                mongo_filter = opt_data.get("mongo_filter") or {}
+            except Exception as e:
+                print(f"Error determining driving table and filter: {e}")
+
         # Fetch and clean data from selected collections
         data_by_table = {}
-        primary_table = request.tables[0] if request.tables else None
 
-        # 1. Fetch primary table records
-        if primary_table:
-            cursor = db[primary_table].find().limit(request.sample_data_size)
+        # 1. Fetch driving table records
+        if driving_table:
+            cursor = db[driving_table].find(mongo_filter).limit(request.sample_data_size)
             primary_records = []
             for doc in cursor:
                 records_processed += 1
@@ -154,17 +224,19 @@ async def simulate_data(request: SimulationRequest):
                     else:
                         doc_cleaned[k] = v
                 primary_records.append(doc_cleaned)
-            data_by_table[primary_table] = primary_records
+            data_by_table[driving_table] = primary_records
 
-            # Collect join keys from the primary table to filter secondary tables
+            # Collect join keys from the driving table to filter secondary tables
             join_keys_to_fetch = {}
             for col in ["customer_id", "account_id"]:
                 vals = [r[col] for r in primary_records if col in r and r[col] is not None]
                 if vals:
                     join_keys_to_fetch[col] = list(set(vals))
 
-            # 2. Fetch secondary tables specifically matching primary table keys to ensure high join rate
-            for table in request.tables[1:]:
+            # 2. Fetch secondary tables specifically matching driving table keys to ensure high join rate
+            for table in request.tables:
+                if table == driving_table:
+                    continue
                 query = {}
                 meta_doc = db['semanticMetaStore'].find_one({"collection_name": table})
                 fields_in_table = []
@@ -204,12 +276,13 @@ async def simulate_data(request: SimulationRequest):
         if not request.tables:
             return SimulationResponse(dataframe=[], column_details={})
 
-        # Start with primary table
-        primary_table = request.tables[0]
-        joined_records = data_by_table.get(primary_table, [])
+        # Start with driving table
+        joined_records = data_by_table.get(driving_table, [])
 
         # Dynamic join logic
-        for table in request.tables[1:]:
+        for table in request.tables:
+            if table == driving_table:
+                continue
             other_records = data_by_table.get(table, [])
             if not joined_records or not other_records:
                 continue
@@ -239,19 +312,95 @@ async def simulate_data(request: SimulationRequest):
                     merged_records.append({**r, **matching})
                 joined_records = merged_records
 
+        # Precalculate customer UPI transaction counts and total transaction counts
+        customer_upi_counts = {}
+        customer_total_tx_counts = {}
+        tx_records = data_by_table.get("transactionsInfo", [])
+        if not tx_records and MONGODB_URI:
+            try:
+                # Fallback if transactionsInfo was not explicitly selected but present in DB
+                tx_records = list(db["transactionsInfo"].find({}, {"customer_id": 1, "channel": 1}))
+            except Exception:
+                pass
+        
+        for tx in tx_records:
+            c_id = tx.get("customer_id")
+            if c_id:
+                customer_total_tx_counts[c_id] = customer_total_tx_counts.get(c_id, 0) + 1
+                if tx.get("channel") == "UPI":
+                    customer_upi_counts[c_id] = customer_upi_counts.get(c_id, 0) + 1
+
+        for r in joined_records:
+            c_id = r.get("customer_id")
+            if c_id:
+                r["_customer_upi_count"] = customer_upi_counts.get(c_id, 0)
+                r["_customer_transaction_count"] = customer_total_tx_counts.get(c_id, 0)
+            else:
+                r["_customer_upi_count"] = 0
+                r["_customer_transaction_count"] = 0
+
+        computed_columns_def = []
+
+        # Analyze logic for computed columns first
+        if request.logic and joined_records:
+            try:
+                comp_prompt = f"""
+                You are a Data Engineering logic compiler.
+                Analyze the user's business logic query and identify any NEW computed/derived/flag columns (like credit score buckets, amount buckets, customer transaction inclinations, etc.) that the user wants to add to the output dataset.
+                
+                Logic: "{request.logic}"
+                
+                Variables available in `row` (keys): {list(joined_records[0].keys())}
+                
+                Also available as helper keys in `row`:
+                - `_customer_upi_count`: Total count of UPI transactions for this customer.
+                - `_customer_transaction_count`: Total count of transactions for this customer.
+                
+                Rules for Python value expressions:
+                1. Access fields using `row.get('field_name')`.
+                2. Ensure safe default fallbacks to avoid NoneType comparison errors (e.g., `(row.get('credit_score') or 0) < 650`).
+                3. Do not use imports, classes, functions, or built-in functions.
+                4. Return a JSON object with a key "computed_columns" which is a list of objects containing:
+                   - "column_name": (string, snake_case name of the column, e.g. "credit_score_bucket")
+                   - "friendly_name": (string, friendly display name, e.g. "Credit Score Bucket")
+                   - "description": (string, brief explanation of the bucket ranges)
+                   - "expression": (string, safe Python inline expression for evaluation, e.g., "'Risky' if (row.get('credit_score') or 0) < 650 else 'Average' if (row.get('credit_score') or 0) <= 750 else 'Good' if (row.get('credit_score') or 0) <= 850 else 'Excellent'")
+                
+                If no computed columns are requested, return an empty list for "computed_columns".
+                """
+                response = await generator.client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": comp_prompt}],
+                    response_format={"type": "json_object"}
+                )
+                sim_prompt_tokens += response.usage.prompt_tokens if response.usage else 0
+                sim_completion_tokens += response.usage.completion_tokens if response.usage else 0
+                
+                comp_data = json.loads(response.choices[0].message.content)
+                computed_columns_def = comp_data.get("computed_columns", [])
+            except Exception as e:
+                print(f"Error extracting computed columns: {e}")
+
         # Apply logic filtering via LLM if provided
         if request.logic and joined_records:
-            joined_records = await filter_records_by_logic(joined_records, request.logic)
+            joined_records, filter_p_tokens, filter_c_tokens = await filter_records_by_logic(joined_records, request.logic)
+            sim_prompt_tokens += filter_p_tokens
+            sim_completion_tokens += filter_c_tokens
 
-        # Select only the requested columns
-        final_dataframe = []
-        for r in joined_records:
-            filtered_row = {col: r[col] for col in request.columns if col in r}
-            # Fill missing requested columns with None
-            for col in request.columns:
-                if col not in filtered_row:
-                    filtered_row[col] = None
-            final_dataframe.append(filtered_row)
+        # Evaluate computed columns for the filtered records
+        for col_def in computed_columns_def:
+            col_name = col_def["column_name"]
+            expr_str = col_def["expression"]
+            try:
+                compiled_val_expr = compile(expr_str, "<string>", "eval")
+                for r in joined_records:
+                    try:
+                        val = eval(compiled_val_expr, {"__builtins__": {}}, {"row": r})
+                        r[col_name] = val
+                    except Exception as e:
+                        r[col_name] = None
+            except Exception as e:
+                print(f"Error compiling computed column expression for {col_name}: {e}")
 
         # Retrieve column details from semanticMetaStore
         column_details = {}
@@ -270,6 +419,22 @@ async def simulate_data(request: SimulationRequest):
                             "lineage": field.get("lineage")
                         }
 
+        # Add computed columns to column_details
+        for col_def in computed_columns_def:
+            col_name = col_def["column_name"]
+            column_details[col_name] = {
+                "friendly_name": col_def["friendly_name"],
+                "description": col_def["description"],
+                "data_type": "string",
+                "role": "dimension",
+                "classification": "public",
+                "lineage": {
+                    "source_tables": request.tables,
+                    "source_columns": [c for c in request.columns if c in col_def["expression"]],
+                    "transformation": f"Computed logic: {col_def['description']}"
+                }
+            }
+
         # Handle columns not explicitly detailed in meta store (fallback)
         for col in request.columns:
             if col not in column_details:
@@ -285,6 +450,17 @@ async def simulate_data(request: SimulationRequest):
                         "transformation": "Direct ingest (derived dataset lookup)"
                     }
                 }
+
+        # Select only the final columns (standard + computed)
+        final_dataframe = []
+        all_display_cols = list(column_details.keys())
+        for r in joined_records:
+            filtered_row = {col: r.get(col) for col in all_display_cols}
+            # Fill missing with None
+            for col in all_display_cols:
+                if col not in filtered_row:
+                    filtered_row[col] = None
+            final_dataframe.append(filtered_row)
 
         # Calculate real Data Quality insights from the queried dataset
         row_count = len(final_dataframe)
@@ -510,7 +686,9 @@ async def simulate_data(request: SimulationRequest):
             "software_requirements": software_reqs,
             "execution_steps": exec_steps,
             "special_instructions": special_inst,
-            "execution_cost": execution_cost
+            "execution_cost": execution_cost,
+            "prompt_tokens": sim_prompt_tokens,
+            "completion_tokens": sim_completion_tokens
         }
 
         return SimulationResponse(

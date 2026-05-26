@@ -23,3 +23,22 @@ List of Software to be used for running the queries?
 PPT:
 Problem Statement - 
 Solution Approach - 
+
+ToDo -
+Output table should have the computed columns as well. (Prepare a table with customer name where loan type is Home Loan and status is Active.
+Also create a flag on credit score where credit score is less than 650 - Risky, 651-750 - Average, 750-850 - Good, >850 - Excellent.
+Also, if principal amount is less than 1000000 - low bucket, if principal amount is between 1000000 - 5000000 - medium bucket, if principal amount is greater than 5000000 - high bucket.
+Prepare a table also to highlight the customer which are doing more than 10 UPI transactions as UPI inclined customers.
+Please add this flag into main output dataset and give the name as "loan_customer_transactions")
+
+
+accountBalances - Account Type - Saving, Balance - 
+customerDetails - First name, last name, credit score, 
+LoanInfo - Loan type, tenure, loan status, principal amount
+transactionInfo - transaction type, channel, merchant name, status
+
+Task 1: Prepare a table with customer name where loan type is Home Loan and status is Active.
+Also create a flag on credit score where credit score is less than 650 - Risky, 651-750 - Average, 750-850 - Good, >850 - Excellent.
+Also, if principal amount is less than 1000000 - low bucket, if principal amount is between 1000000 - 5000000 - medium bucket, if principal amount is greater than 5000000 - high bucket.
+Prepare a table also to highlight the customer which are doing more than 10 UPI transactions as UPI inclined customers.
+Please add this flag into main output dataset and give the name as "loan_customer_transactions".

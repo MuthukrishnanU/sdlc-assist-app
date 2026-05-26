@@ -18,9 +18,10 @@ interface MainSectionProps {
   isLoading: boolean;
   apiBaseUrl: string;
   formData: any | null;
+  generationTokens: { prompt_tokens: number; completion_tokens: number } | null;
 }
 
-const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, apiBaseUrl, formData }) => {
+const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, apiBaseUrl, formData, generationTokens }) => {
   const { isDark } = useTheme();
   const [outputTableInsights, setOutputTableInsights] = React.useState<DQInsights | null>(null);
   const [tableInsightsMap, setTableInsightsMap] = React.useState<Record<string, DQInsights>>({});
@@ -107,6 +108,10 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
   }, [simulatedData, searchQuery]);
 
   const totalPages = Math.ceil(filteredRecords.length / 10);
+
+  const displayedColumns = React.useMemo(() => {
+    return Object.keys(columnDetailsMap);
+  }, [columnDetailsMap]);
 
   const paginatedRecords = React.useMemo(() => {
     const startIndex = (currentPage - 1) * 10;
@@ -331,8 +336,8 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                         Role: {columnDetailsMap[selectedColumn].role}
                       </span>
                       <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${columnDetailsMap[selectedColumn].classification.toUpperCase() === 'PII' || columnDetailsMap[selectedColumn].classification.toUpperCase() === 'PRIVATE'
-                          ? (isDark ? 'bg-red-500/20 text-red-300' : 'bg-red-50 text-red-600')
-                          : (isDark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-600')
+                        ? (isDark ? 'bg-red-500/20 text-red-300' : 'bg-red-50 text-red-600')
+                        : (isDark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-600')
                         }`}>
                         Classification: {columnDetailsMap[selectedColumn].classification}
                       </span>
@@ -370,7 +375,7 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                   <thead className={`text-xs uppercase tracking-wider transition-colors duration-400 border-b ${isDark ? 'bg-black/20 text-white/50 border-white/10' : 'bg-gray-50 text-gray-500 border-gray-200'
                     }`}>
                     <tr>
-                      {formData?.columns.map((col: string) => (
+                      {displayedColumns.map((col: string) => (
                         <th key={col} scope="col" className="px-6 py-3 font-semibold">
                           {col}
                         </th>
@@ -381,14 +386,14 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                     }`}>
                     {paginatedRecords.length === 0 ? (
                       <tr>
-                        <td colSpan={formData?.columns.length} className="px-6 py-8 text-center italic opacity-50">
+                        <td colSpan={displayedColumns.length} className="px-6 py-8 text-center italic opacity-50">
                           No matching records found.
                         </td>
                       </tr>
                     ) : (
                       paginatedRecords.map((row, index) => (
                         <tr key={index} className={`hover:bg-black/5 transition-colors duration-200`}>
-                          {formData?.columns.map((col: string) => (
+                          {displayedColumns.map((col: string) => (
                             <td key={col} className="px-6 py-3.5 font-mono text-xs whitespace-nowrap">
                               {row[col] !== null && row[col] !== undefined ? String(row[col]) : <span className="opacity-30">null</span>}
                             </td>
@@ -630,7 +635,7 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
             ? 'bg-axis-burgundy-deep border-white/10 text-white'
             : 'bg-white border-gray-200 text-gray-800'
             }`}>
-            
+
             {/* Header */}
             <div className="px-6 py-4 border-b flex items-center justify-between border-dashed border-gray-200/50 dark:border-white/10">
               <div className="flex items-center gap-2">
@@ -644,10 +649,10 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                 ✕
               </button>
             </div>
-            
+
             {/* Content */}
             <div className="p-6 overflow-y-auto space-y-5 text-sm leading-relaxed">
-              
+
               {/* Stats row */}
               <div className="grid grid-cols-3 gap-3">
                 <div className={`p-4 rounded-xl border ${isDark ? 'bg-white/5 border-white/5' : 'bg-gray-50 border-gray-100'}`}>
@@ -664,9 +669,41 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                 </div>
                 <div className={`p-4 rounded-xl border ${isDark ? 'bg-white/5 border-white/5' : 'bg-gray-50 border-gray-100'}`}>
                   <div className="text-[10px] font-bold uppercase tracking-wider opacity-60">Execution Cost</div>
-                  <div className="text-xs font-semibold mt-1 leading-snug">
+                  <div className="text-sm font-semibold mt-1 leading-snug">
                     {simulationData.execution_explanation.execution_cost.includes("0.00") ? "FREE ($0.00)" : "EST. $0.0065"}
                   </div>
+                </div>
+              </div>
+
+              {/* Token Consumption */}
+              <div className={`p-4 rounded-xl border flex flex-col gap-1 ${isDark ? 'bg-white/5 border-white/5' : 'bg-gray-50 border-gray-100'}`}>
+                <div className="text-[10px] font-bold uppercase tracking-wider opacity-60">LLM Token Consumption</div>
+                <div className="flex flex-wrap items-center justify-between gap-4 mt-1">
+                  <div>
+                    <span className="text-lg font-bold text-axis-red isDark:text-axis-cream">
+                      {((generationTokens?.prompt_tokens || 0) + (simulationData.execution_explanation.prompt_tokens || 0) +
+                        (generationTokens?.completion_tokens || 0) + (simulationData.execution_explanation.completion_tokens || 0)).toLocaleString()}
+                    </span>
+                    <span className="text-sm ml-1 opacity-60">total tokens used</span>
+                  </div>
+                  <div className="flex gap-4 text-sm">
+                    <div>
+                      <span className="font-semibold">Input:</span>{' '}
+                      <span className="opacity-80">
+                        {((generationTokens?.prompt_tokens || 0) + (simulationData.execution_explanation.prompt_tokens || 0)).toLocaleString()}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="font-semibold">Generation:</span>{' '}
+                      <span className="opacity-80">
+                        {((generationTokens?.completion_tokens || 0) + (simulationData.execution_explanation.completion_tokens || 0)).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-[10px] opacity-40 mt-1 flex justify-between">
+                  <span>Code Gen Phase: {((generationTokens?.prompt_tokens || 0) + (generationTokens?.completion_tokens || 0)).toLocaleString()} tkn</span>
+                  <span>Simulation Phase: {((simulationData.execution_explanation.prompt_tokens || 0) + (simulationData.execution_explanation.completion_tokens || 0)).toLocaleString()} tkn</span>
                 </div>
               </div>
 
@@ -683,10 +720,10 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
 
               {/* Software Requirements */}
               <div className="space-y-1.5">
-                <div className="font-bold text-xs uppercase tracking-wider opacity-70">Required Libraries & Packages</div>
+                <div className="font-bold text-sm uppercase tracking-wider opacity-70">Required Libraries & Packages</div>
                 <div className="flex flex-wrap gap-2">
                   {simulationData.execution_explanation.software_requirements.map((req: string, idx: number) => (
-                    <span key={idx} className={`text-xs px-2.5 py-1 rounded-lg border font-medium ${isDark
+                    <span key={idx} className={`text-sm px-2.5 py-1 rounded-lg border font-medium ${isDark
                       ? 'bg-white/5 border-white/10 text-gray-200'
                       : 'bg-gray-100 border-gray-200 text-gray-700'
                       }`}>
@@ -698,14 +735,14 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
 
               {/* Steps to Execute */}
               <div className="space-y-1.5">
-                <div className="font-bold text-xs uppercase tracking-wider opacity-70">Steps to Run Code</div>
+                <div className="font-bold text-sm uppercase tracking-wider opacity-70">Steps to Run Code</div>
                 <ul className="space-y-1.5 pl-1">
                   {simulationData.execution_explanation.execution_steps.map((step: string, idx: number) => (
                     <li key={idx} className="flex gap-2.5 items-start">
                       <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 ${isDark ? 'bg-white/10 text-white' : 'bg-gray-200 text-gray-700'}`}>
                         {idx + 1}
                       </span>
-                      <span className={`text-xs ${isDark ? 'text-white/80' : 'text-gray-600'}`}>{step}</span>
+                      <span className={`text-sm ${isDark ? 'text-white/80' : 'text-gray-600'}`}>{step}</span>
                     </li>
                   ))}
                 </ul>
@@ -719,8 +756,8 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                   }`}>
                   <Info className="w-4 h-4 shrink-0 mt-0.5" />
                   <div>
-                    <div className="font-bold text-xs uppercase tracking-wider">Special Instructions</div>
-                    <p className="text-xs mt-1 leading-relaxed">{simulationData.execution_explanation.special_instructions}</p>
+                    <div className="font-bold text-sm uppercase tracking-wider">Special Instructions</div>
+                    <p className="text-sm mt-1 leading-relaxed">{simulationData.execution_explanation.special_instructions}</p>
                   </div>
                 </div>
               )}
@@ -730,7 +767,7 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                 ? 'bg-white/5 border-white/5 text-white/70'
                 : 'bg-gray-50 border-gray-100 text-gray-500'
                 }`}>
-                <div className="text-xs">
+                <div className="text-sm">
                   <span className="font-bold uppercase tracking-wider text-[10px] block opacity-60 mb-0.5">Billing & Cost Analysis</span>
                   {simulationData.execution_explanation.execution_cost}
                 </div>
@@ -742,7 +779,7 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
             <div className="px-6 py-4 border-t flex justify-end border-dashed border-gray-200/50 dark:border-white/10">
               <button
                 onClick={() => setIsExplanationOpen(false)}
-                className={`px-5 py-2 rounded-xl text-xs font-semibold shadow transition-all ${isDark
+                className={`px-5 py-2 rounded-xl text-sm font-semibold shadow transition-all ${isDark
                   ? 'bg-white/10 hover:bg-white/15 text-white'
                   : 'bg-gray-900 hover:bg-gray-800 text-white'
                   }`}

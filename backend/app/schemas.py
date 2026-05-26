@@ -19,6 +19,8 @@ class DQInsights(BaseModel):
 class CodeGenerationResponse(BaseModel):
     generated_code: str
     dq_insights: DQInsights
+    prompt_tokens: Optional[int] = 0
+    completion_tokens: Optional[int] = 0
 
 class SimulationRequest(BaseModel):
     tables: List[str]
@@ -49,6 +51,8 @@ class ExecutionExplanation(BaseModel):
     execution_steps: List[str]
     special_instructions: Optional[str] = None
     execution_cost: Optional[str] = None
+    prompt_tokens: Optional[int] = 0
+    completion_tokens: Optional[int] = 0
 
 class SimulationResponse(BaseModel):
     dataframe: List[dict]

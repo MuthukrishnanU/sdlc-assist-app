@@ -13,17 +13,23 @@ function App() {
   const [dqInsights, setDqInsights] = React.useState<any | null>(null);
   const [lastFormData, setLastFormData] = React.useState<any | null>(null);
   const [loading, setLoading] = React.useState(false);
+  const [generationTokens, setGenerationTokens] = React.useState<{prompt_tokens: number, completion_tokens: number} | null>(null);
 
   const handleGenerate = async (formData: any) => {
     setLoading(true);
     setGeneratedCode(null);
     setDqInsights(null);
+    setGenerationTokens(null);
     setLastFormData(formData);
 
     try {
       const response = await axios.post(`${API_BASE_URL}/generate`, formData);
       setGeneratedCode(response.data.generated_code);
       setDqInsights(response.data.dq_insights);
+      setGenerationTokens({
+        prompt_tokens: response.data.prompt_tokens || 0,
+        completion_tokens: response.data.completion_tokens || 0
+      });
     } catch (error) {
       console.error('Error generating code:', error);
       // Fallback or error message could be added here
@@ -43,6 +49,7 @@ function App() {
           isLoading={loading}
           apiBaseUrl={API_BASE_URL}
           formData={lastFormData}
+          generationTokens={generationTokens}
         />
       </div>
     </ThemeProvider>
