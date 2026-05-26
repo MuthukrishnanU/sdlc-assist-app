@@ -46,4 +46,7 @@ class GitHubPushRequest(BaseModel):
     generated_code: Optional[str] = None
     format: Optional[str] = None
     repo_name: Optional[str] = None
-    file_name: Optional[str] = None
+    data_file_name: Optional[str] = None
+    query_file_name: Optional[str] = None
+    pod_name: Optional[str] = None
+    project_name: Optional[str] = None

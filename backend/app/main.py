@@ -495,9 +495,31 @@ async def push_to_github(request: GitHubPushRequest):
             )
             
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        data_file_name = request.file_name or f"simulated_data_{timestamp}.csv"
         
-        # 1. Convert and push dataframe CSV
+        # 1. Determine file names
+        data_file_name = (request.data_file_name or "").strip() or f"simulated_data_{timestamp}.csv"
+        if not data_file_name.endswith('.csv'):
+            data_file_name += '.csv'
+            
+        ext = ".sql"
+        fmt = (request.format or "").lower()
+        if "pyspark" in fmt or "python" in fmt:
+            ext = ".py"
+        elif "mongodb" in fmt or "noscript" in fmt or "js" in fmt or "firestore" in fmt:
+            ext = ".js"
+            
+        code_file_name = (request.query_file_name or "").strip() or f"query_{timestamp}{ext}"
+        if not code_file_name.endswith(ext):
+            code_file_name += ext
+
+        # 2. Build structured path
+        pod = request.pod_name or "data-pod-1"
+        project = request.project_name or "sdlc-data-engineering"
+        
+        data_path = f"{pod}/{project}/data/{data_file_name}"
+        code_path = f"{pod}/{project}/queries/{code_file_name}"
+        
+        # 3. Convert and push dataframe CSV
         csv_content = convert_to_csv(request.dataframe)
         base64_data_content = base64.b64encode(csv_content.encode("utf-8")).decode("utf-8")
         
@@ -506,7 +528,6 @@ async def push_to_github(request: GitHubPushRequest):
             "Accept": "application/vnd.github.v3+json"
         }
         
-        data_path = f"data/{data_file_name}"
         data_url = f"https://api.github.com/repos/{repo}/contents/{data_path}"
         
         async with httpx.AsyncClient() as client:
@@ -529,19 +550,9 @@ async def push_to_github(request: GitHubPushRequest):
             data_html_url = put_resp.json().get("content", {}).get("html_url", "")
             
             code_html_url = ""
-            code_path = ""
             
-            # 2. Push generated code query if present
+            # 4. Push generated code query if present
             if request.generated_code:
-                ext = ".sql"
-                fmt = (request.format or "").lower()
-                if "pyspark" in fmt or "python" in fmt:
-                    ext = ".py"
-                elif "mongodb" in fmt or "noscript" in fmt or "js" in fmt or "firestore" in fmt:
-                    ext = ".js"
-                
-                code_file_name = f"query_{timestamp}{ext}"
-                code_path = f"queries/{code_file_name}"
                 code_url = f"https://api.github.com/repos/{repo}/contents/{code_path}"
                 
                 base64_code_content = base64.b64encode(request.generated_code.encode("utf-8")).decode("utf-8")

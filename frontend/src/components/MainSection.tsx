@@ -35,6 +35,12 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
   const [isPushing, setIsPushing] = React.useState(false);
   const [currentPage, setCurrentPage] = React.useState(1);
 
+  // GitHub push configuration states
+  const [podName, setPodName] = React.useState('data-pod-1');
+  const [projectName, setProjectName] = React.useState('sdlc-data-engineering');
+  const [dataFileName, setDataFileName] = React.useState('');
+  const [queryFileName, setQueryFileName] = React.useState('');
+
   React.useEffect(() => {
     setOutputTableInsights(insights);
     setTableInsightsMap({});
@@ -47,6 +53,14 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
     setSelectedColumn('');
     setIsPushing(false);
     setCurrentPage(1);
+
+    // Reset GitHub push options
+    setPodName('data-pod-1');
+    setProjectName('sdlc-data-engineering');
+    setDataFileName('');
+    setQueryFileName('');
+    console.log(outputTableInsights);
+    console.log(tableInsightsMap);
   }, [code, insights]);
 
   // Dynamically default the selected column to the primary key when table selection or simulation data changes
@@ -84,7 +98,7 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
     return simulatedData.filter(row => {
       if (!searchQuery) return true;
       const query = searchQuery.toLowerCase();
-      return Object.values(row).some(val => 
+      return Object.values(row).some(val =>
         val !== null && val !== undefined && String(val).toLowerCase().includes(query)
       );
     });
@@ -135,7 +149,11 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
       const response = await axios.post(`${apiBaseUrl}/github/push`, {
         dataframe: simulatedData,
         generated_code: code,
-        format: formData?.format
+        format: formData?.format,
+        pod_name: podName,
+        project_name: projectName,
+        data_file_name: dataFileName.trim() || undefined,
+        query_file_name: queryFileName.trim() || undefined
       });
       if (response.data.status === 'success') {
         alert(
@@ -242,8 +260,8 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className={`w-full pl-9 pr-4 py-2 text-sm rounded-xl focus:outline-none focus:ring-2 transition-all ${isDark
-                      ? 'bg-white/10 border border-white/10 text-white placeholder-white/30 focus:ring-axis-red/30'
-                      : 'bg-white border border-gray-200 text-gray-700 placeholder-gray-400 focus:ring-axis-burgundy/20'
+                    ? 'bg-white/10 border border-white/10 text-white placeholder-white/30 focus:ring-axis-red/30'
+                    : 'bg-white border border-gray-200 text-gray-700 placeholder-gray-400 focus:ring-axis-burgundy/20'
                     }`}
                 />
               </div>
@@ -257,8 +275,8 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                   value={selectedColumn}
                   onChange={(e) => setSelectedColumn(e.target.value)}
                   className={`px-3 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
-                      ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
-                      : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'
+                    ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
+                    : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'
                     }`}
                 >
                   {Object.keys(columnDetailsMap).map((col) => (
@@ -273,8 +291,8 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
             {/* Inspect Column Detail Card */}
             {selectedColumn && columnDetailsMap[selectedColumn] && (
               <div className={`p-4 rounded-xl border transition-colors duration-400 ${isDark
-                  ? 'bg-axis-burgundy-dark/30 border-white/5 text-white'
-                  : 'bg-white border-gray-100 text-gray-700'
+                ? 'bg-axis-burgundy-dark/30 border-white/5 text-white'
+                : 'bg-white border-gray-100 text-gray-700'
                 }`}>
                 <div className="flex items-start gap-3">
                   <div className={`p-2 rounded-lg mt-0.5 ${isDark ? 'bg-axis-red/10' : 'bg-axis-burgundy/5'}`}>
@@ -297,8 +315,8 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                         Role: {columnDetailsMap[selectedColumn].role}
                       </span>
                       <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${columnDetailsMap[selectedColumn].classification.toUpperCase() === 'PII' || columnDetailsMap[selectedColumn].classification.toUpperCase() === 'PRIVATE'
-                          ? (isDark ? 'bg-red-500/20 text-red-300' : 'bg-red-50 text-red-600')
-                          : (isDark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-600')
+                        ? (isDark ? 'bg-red-500/20 text-red-300' : 'bg-red-50 text-red-600')
+                        : (isDark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-600')
                         }`}>
                         Classification: {columnDetailsMap[selectedColumn].classification}
                       </span>
@@ -353,7 +371,7 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                   <span className={`font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{filteredRecords.length}</span>{' '}
                   matching records (Simulated pool: {simulatedData.length})
                 </span>
-                
+
                 {totalPages > 1 && (
                   <div className="flex items-center gap-2">
                     <button
@@ -404,8 +422,8 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                     value={selectedDqTable}
                     onChange={(e) => setSelectedDqTable(e.target.value)}
                     className={`px-3 py-1.5 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
-                        ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
-                        : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'
+                      ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
+                      : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'
                       }`}
                   >
                     <option value="Output Table" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
@@ -427,8 +445,8 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                         value={selectedDqColumn}
                         onChange={(e) => setSelectedDqColumn(e.target.value)}
                         className={`px-3 py-1.5 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
-                            ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
-                            : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'
+                          ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
+                          : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'
                           }`}
                       >
                         {availableDqColumns.map((col) => (
@@ -464,6 +482,89 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
               ))}
             </div>
           </section>
+        )}
+
+        {/* GitHub Push Configuration Form */}
+        {simulatedData.length > 0 && (
+          <div className={`p-6 rounded-2xl border transition-colors duration-400 space-y-4 ${isDark
+            ? 'bg-axis-burgundy-dark/40 border-white/10 text-white'
+            : 'bg-white border-gray-200 text-gray-700'
+            }`}>
+            <h3 className="text-sm font-semibold uppercase tracking-wider">GitHub Push Settings</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Pod Name */}
+              <div className="flex flex-col gap-1.5">
+                <label className={`text-xs font-semibold ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
+                  Pod Name
+                </label>
+                <select
+                  value={podName}
+                  onChange={(e) => setPodName(e.target.value)}
+                  className={`px-3.5 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
+                    ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
+                    : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'
+                    }`}
+                >
+                  <option value="data-pod-1" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>data-pod-1</option>
+                  <option value="data-pod-2" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>data-pod-2</option>
+                  <option value="data-pod-3" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>data-pod-3</option>
+                </select>
+              </div>
+
+              {/* Project Name */}
+              <div className="flex flex-col gap-1.5">
+                <label className={`text-xs font-semibold ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
+                  Project Name
+                </label>
+                <select
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                  className={`px-3.5 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
+                    ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
+                    : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'
+                    }`}
+                >
+                  <option value="sdlc-data-engineering" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>sdlc-data-engineering</option>
+                  <option value="sdlc-analytics-engineering" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>sdlc-analytics-engineering</option>
+                  <option value="sdlc-data-science" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>sdlc-data-science</option>
+                </select>
+              </div>
+
+              {/* Data File Name */}
+              <div className="flex flex-col gap-1.5">
+                <label className={`text-xs font-semibold ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
+                  Data File Name (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. customer_auto_loans (.csv automatically added)"
+                  value={dataFileName}
+                  onChange={(e) => setDataFileName(e.target.value)}
+                  className={`px-3.5 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 transition-all ${isDark
+                    ? 'bg-white/10 border border-white/10 text-white placeholder-white/30 focus:ring-axis-red/30'
+                    : 'bg-white border border-gray-200 text-gray-700 placeholder-gray-400 focus:ring-axis-burgundy/20'
+                    }`}
+                />
+              </div>
+
+              {/* Query File Name */}
+              <div className="flex flex-col gap-1.5">
+                <label className={`text-xs font-semibold ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
+                  Query File Name (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. select_active_loans (extension automatically added)"
+                  value={queryFileName}
+                  onChange={(e) => setQueryFileName(e.target.value)}
+                  className={`px-3.5 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 transition-all ${isDark
+                    ? 'bg-white/10 border border-white/10 text-white placeholder-white/30 focus:ring-axis-red/30'
+                    : 'bg-white border border-gray-200 text-gray-700 placeholder-gray-400 focus:ring-axis-burgundy/20'
+                    }`}
+                />
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Action Buttons */}
