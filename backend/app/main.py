@@ -12,6 +12,14 @@ import json
 import os
 from pymongo import MongoClient
 from dotenv import load_dotenv
+import dns.resolver
+
+# Configure dnspython to use public DNS servers (bypasses unstable local router DNS)
+try:
+    dns.resolver.default_resolver = dns.resolver.Resolver(configure=False)
+    dns.resolver.default_resolver.nameservers = ['8.8.8.8', '8.8.4.4', '1.1.1.1']
+except Exception:
+    pass
 
 # Reload environment variables on file change
 load_dotenv()
@@ -57,6 +65,65 @@ async def get_metadata():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+async def filter_records_by_logic(records: list, logic: str) -> list:
+    if not logic or not records:
+        return records
+    try:
+        prompt = f"""
+        You are a translation assistant that converts natural language data filtering logic into a safe Python boolean expression.
+        
+        Variables available (row keys): {list(records[0].keys())}
+        
+        Here are some sample rows from the dataset to help you see the format and typical values of fields:
+        {json.dumps(records[:5], default=str)}
+        
+        Logic to convert: "{logic}"
+        
+        Rules for the Python expression:
+        1. It must evaluate to a boolean-like value (True/False or truthy/falsy) for a dict named `row`.
+        2. Access fields using `row.get('field_name')`.
+        3. Do not use any imports, classes, functions, or built-in functions (like eval, exec, open, bool, str).
+        4. Handle case insensitivity where appropriate (e.g. convert string values to lowercase if the user query is case-insensitive, using `.lower()` on strings if they are not None).
+        5. Handle None/null checks safely (e.g., `row.get('loan_type') and 'auto' in row.get('loan_type').lower()`).
+        6. Return a JSON object with exactly one key "expression" containing the string of the Python expression.
+        
+        Example Logic: "loan status is Active and loan type is auto loan"
+        Example JSON:
+        {{
+          "expression": "row.get('loan_status') and row.get('loan_status').lower() == 'active' and row.get('loan_type') and 'auto' in row.get('loan_type').lower()"
+        }}
+        """
+        
+        response = await generator.client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"}
+        )
+        
+        result = json.loads(response.choices[0].message.content)
+        expression_str = result.get("expression")
+        if not expression_str:
+            return records
+            
+        compiled_expr = compile(expression_str, "<string>", "eval")
+        
+        filtered = []
+        for r in records:
+            try:
+                # Safely evaluate without builtins
+                is_match = eval(compiled_expr, {"__builtins__": {}}, {"row": r})
+                if bool(is_match):
+                    filtered.append(r)
+            except Exception as e:
+                # Ignore row evaluation errors
+                pass
+                
+        return filtered
+    except Exception as e:
+        print(f"Error in logic-aware filtering: {e}")
+        return records
+
+
 @app.post("/simulate", response_model=SimulationResponse)
 async def simulate_data(request: SimulationRequest):
     try:
@@ -67,9 +134,12 @@ async def simulate_data(request: SimulationRequest):
 
         # Fetch and clean data from selected collections
         data_by_table = {}
-        for table in request.tables:
-            cursor = db[table].find().limit(request.sample_data_size)
-            records = []
+        primary_table = request.tables[0] if request.tables else None
+
+        # 1. Fetch primary table records
+        if primary_table:
+            cursor = db[primary_table].find().limit(request.sample_data_size)
+            primary_records = []
             for doc in cursor:
                 doc_cleaned = {}
                 for k, v in doc.items():
@@ -79,8 +149,52 @@ async def simulate_data(request: SimulationRequest):
                         doc_cleaned[k] = v.strftime("%Y-%m-%d %H:%M:%S")
                     else:
                         doc_cleaned[k] = v
-                records.append(doc_cleaned)
-            data_by_table[table] = records
+                primary_records.append(doc_cleaned)
+            data_by_table[primary_table] = primary_records
+
+            # Collect join keys from the primary table to filter secondary tables
+            join_keys_to_fetch = {}
+            for col in ["customer_id", "account_id"]:
+                vals = [r[col] for r in primary_records if col in r and r[col] is not None]
+                if vals:
+                    join_keys_to_fetch[col] = list(set(vals))
+
+            # 2. Fetch secondary tables specifically matching primary table keys to ensure high join rate
+            for table in request.tables[1:]:
+                query = {}
+                meta_doc = db['semanticMetaStore'].find_one({"collection_name": table})
+                fields_in_table = []
+                if meta_doc:
+                    fields_in_table = [f["field_name"] for f in meta_doc.get("fields", [])]
+                
+                # If metadata didn't have it, try a quick find_one lookup
+                if not fields_in_table:
+                    sample_doc = db[table].find_one()
+                    if sample_doc:
+                        fields_in_table = list(sample_doc.keys())
+                
+                filter_key = None
+                for key in ["customer_id", "account_id"]:
+                    if key in join_keys_to_fetch and key in fields_in_table:
+                        filter_key = key
+                        break
+                        
+                if filter_key:
+                    query = {filter_key: {"$in": join_keys_to_fetch[filter_key]}}
+                
+                cursor = db[table].find(query).limit(request.sample_data_size)
+                records = []
+                for doc in cursor:
+                    doc_cleaned = {}
+                    for k, v in doc.items():
+                        if k == '_id':
+                            continue
+                        if isinstance(v, datetime):
+                            doc_cleaned[k] = v.strftime("%Y-%m-%d %H:%M:%S")
+                        else:
+                            doc_cleaned[k] = v
+                    records.append(doc_cleaned)
+                data_by_table[table] = records
 
         if not request.tables:
             return SimulationResponse(dataframe=[], column_details={})
@@ -119,6 +233,10 @@ async def simulate_data(request: SimulationRequest):
                     matching = lookup.get(k_val, {})
                     merged_records.append({**r, **matching})
                 joined_records = merged_records
+
+        # Apply logic filtering via LLM if provided
+        if request.logic and joined_records:
+            joined_records = await filter_records_by_logic(joined_records, request.logic)
 
         # Select only the requested columns
         final_dataframe = []
@@ -269,11 +387,73 @@ async def simulate_data(request: SimulationRequest):
                 "average": t_average
             }
 
+        # Calculate columnwise and tablewise DQI and primary keys
+        column_dq_insights = {}
+        primary_keys = {}
+
+        # Get primary key metadata
+        for table in request.tables:
+            meta_doc = db['semanticMetaStore'].find_one({"collection_name": table})
+            pk = "customer_id"  # default fallback
+            if meta_doc and "primary_key" in meta_doc:
+                pk = meta_doc["primary_key"]
+            primary_keys[table] = pk
+
+        if request.tables:
+            primary_keys["Output Table"] = primary_keys.get(request.tables[0], "customer_id")
+
+        # Function to calculate DQ insights for a single column in a dataset
+        def calculate_col_dq(records: list, col: str) -> dict:
+            row_count = len(records)
+            null_count = sum(1 for r in records if r.get(col) is None or r.get(col) == "")
+            
+            non_null_vals = [r.get(col) for r in records if r.get(col) is not None and r.get(col) != ""]
+            duplicate_count = len(non_null_vals) - len(set(non_null_vals))
+            
+            numeric_values = []
+            for val in non_null_vals:
+                try:
+                    numeric_values.append(float(val))
+                except (ValueError, TypeError):
+                    pass
+            
+            minimum = min(numeric_values) if numeric_values else None
+            maximum = max(numeric_values) if numeric_values else None
+            average = round(sum(numeric_values) / len(numeric_values), 2) if numeric_values else None
+            
+            return {
+                "row_count": row_count,
+                "null_values": null_count,
+                "duplicate_rows": duplicate_count,
+                "minimum": minimum,
+                "maximum": maximum,
+                "average": average
+            }
+
+        # Calculate for Output Table columns
+        output_col_insights = {}
+        for col in request.columns:
+            output_col_insights[col] = calculate_col_dq(final_dataframe, col)
+        column_dq_insights["Output Table"] = output_col_insights
+
+        # Calculate for each selected table columns
+        for table in request.tables:
+            table_records = data_by_table.get(table, [])
+            table_col_insights = {}
+            if table_records:
+                # Find all fields present in the table records
+                cols = list(table_records[0].keys())
+                for col in cols:
+                    table_col_insights[col] = calculate_col_dq(table_records, col)
+            column_dq_insights[table] = table_col_insights
+
         return SimulationResponse(
             dataframe=final_dataframe,
             column_details=column_details,
             dq_insights=dq_insights,
-            table_dq_insights=table_dq_insights
+            table_dq_insights=table_dq_insights,
+            column_dq_insights=column_dq_insights,
+            primary_keys=primary_keys
         )
 
     except Exception as e:

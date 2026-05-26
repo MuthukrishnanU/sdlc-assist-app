@@ -25,6 +25,8 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
   const [outputTableInsights, setOutputTableInsights] = React.useState<DQInsights | null>(null);
   const [tableInsightsMap, setTableInsightsMap] = React.useState<Record<string, DQInsights>>({});
   const [selectedDqTable, setSelectedDqTable] = React.useState<string>('Output Table');
+  const [selectedDqColumn, setSelectedDqColumn] = React.useState<string>('');
+  const [simulationData, setSimulationData] = React.useState<any>(null);
   const [simulatedData, setSimulatedData] = React.useState<any[]>([]);
   const [columnDetailsMap, setColumnDetailsMap] = React.useState<Record<string, any>>({});
   const [searchQuery, setSearchQuery] = React.useState('');
@@ -37,6 +39,8 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
     setOutputTableInsights(insights);
     setTableInsightsMap({});
     setSelectedDqTable('Output Table');
+    setSelectedDqColumn('');
+    setSimulationData(null);
     setSimulatedData([]);
     setColumnDetailsMap({});
     setSearchQuery('');
@@ -45,12 +49,32 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
     setCurrentPage(1);
   }, [code, insights]);
 
-  const activeInsights = React.useMemo(() => {
-    if (selectedDqTable === 'Output Table') {
-      return outputTableInsights;
+  // Dynamically default the selected column to the primary key when table selection or simulation data changes
+  React.useEffect(() => {
+    if (!simulationData) {
+      setSelectedDqColumn('');
+      return;
     }
-    return tableInsightsMap[selectedDqTable] || null;
-  }, [selectedDqTable, outputTableInsights, tableInsightsMap]);
+    const cols = Object.keys(simulationData.column_dq_insights?.[selectedDqTable] || {});
+    const pk = simulationData.primary_keys?.[selectedDqTable];
+    if (pk && cols.includes(pk)) {
+      setSelectedDqColumn(pk);
+    } else if (cols.length > 0) {
+      setSelectedDqColumn(cols[0]);
+    } else {
+      setSelectedDqColumn('');
+    }
+  }, [selectedDqTable, simulationData]);
+
+  const availableDqColumns = React.useMemo(() => {
+    if (!simulationData) return [];
+    return Object.keys(simulationData.column_dq_insights?.[selectedDqTable] || {});
+  }, [selectedDqTable, simulationData]);
+
+  const activeInsights = React.useMemo(() => {
+    if (!simulationData) return null;
+    return simulationData.column_dq_insights?.[selectedDqTable]?.[selectedDqColumn] || null;
+  }, [selectedDqTable, selectedDqColumn, simulationData]);
 
   React.useEffect(() => {
     setCurrentPage(1);
@@ -80,8 +104,10 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
       const response = await axios.post(`${apiBaseUrl}/simulate`, {
         tables: formData.tables,
         columns: formData.columns,
-        sample_data_size: formData.sample_data_size
+        sample_data_size: formData.sample_data_size,
+        logic: formData.logic
       });
+      setSimulationData(response.data);
       setSimulatedData(response.data.dataframe);
       setColumnDetailsMap(response.data.column_details);
       setOutputTableInsights(response.data.dq_insights);
@@ -363,53 +389,82 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
         )}
 
         {/* DQ Insights Section */}
-        <section className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-            <div className={`flex items-center gap-2 font-semibold uppercase text-xs tracking-widest ${isDark ? 'text-axis-cream' : 'text-axis-red'}`}>
-              <Activity className="w-4 h-4" /> Data Quality Insights
-            </div>
-            {formData?.tables && formData.tables.length > 0 && (
-              <select
-                value={selectedDqTable}
-                onChange={(e) => setSelectedDqTable(e.target.value)}
-                className={`px-3 py-1.5 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
-                    ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
-                    : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'
-                  }`}
-              >
-                <option value="Output Table" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
-                  Output Table
-                </option>
-                {formData.tables.map((table: string) => (
-                  <option key={table} value={table} className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
-                    {table}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[
-              { label: 'Row Count', value: activeInsights?.row_count, icon: HashIcon },
-              { label: 'Null Values', value: activeInsights?.null_values, darkColor: 'text-red-400', lightColor: 'text-red-600' },
-              { label: 'Duplicate Rows', value: activeInsights?.duplicate_rows, darkColor: 'text-orange-400', lightColor: 'text-orange-600' },
-              { label: 'Minimum', value: activeInsights?.minimum },
-              { label: 'Maximum', value: activeInsights?.maximum },
-              { label: 'Average', value: activeInsights?.average },
-            ].map((item, idx) => (
-              <div key={idx} className={`p-5 rounded-xl transition-colors group shadow-sm duration-400 ${isDark
-                ? 'bg-axis-burgundy-dark/50 border border-white/10 hover:border-axis-red/40'
-                : 'bg-white border border-gray-200 hover:border-axis-burgundy/30'
-                }`}>
-                <div className={`text-xs font-medium mb-1 ${isDark ? 'text-white/50' : 'text-gray-500'}`}>{item.label}</div>
-                <div className={`text-2xl font-bold group-hover:scale-105 transition-transform origin-left ${(isDark ? item.darkColor : item.lightColor) || (isDark ? 'text-white' : 'text-gray-900')
-                  }`}>
-                  {isLoading ? '...' : (item.value ?? '-')}
-                </div>
+        {simulatedData.length > 0 && (
+          <section className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className={`flex items-center gap-2 font-semibold uppercase text-xs tracking-widest ${isDark ? 'text-axis-cream' : 'text-axis-red'}`}>
+                <Activity className="w-4 h-4" /> Data Quality Insights
               </div>
-            ))}
-          </div>
-        </section>
+              {formData?.tables && formData.tables.length > 0 && (
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-white/50' : 'text-gray-500'}`}>
+                    Table:
+                  </span>
+                  <select
+                    value={selectedDqTable}
+                    onChange={(e) => setSelectedDqTable(e.target.value)}
+                    className={`px-3 py-1.5 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
+                        ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
+                        : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'
+                      }`}
+                  >
+                    <option value="Output Table" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
+                      Output Table
+                    </option>
+                    {formData.tables.map((table: string) => (
+                      <option key={table} value={table} className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
+                        {table}
+                      </option>
+                    ))}
+                  </select>
+
+                  {availableDqColumns.length > 0 && (
+                    <>
+                      <span className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-white/50' : 'text-gray-500'}`}>
+                        Column:
+                      </span>
+                      <select
+                        value={selectedDqColumn}
+                        onChange={(e) => setSelectedDqColumn(e.target.value)}
+                        className={`px-3 py-1.5 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
+                            ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
+                            : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'
+                          }`}
+                      >
+                        {availableDqColumns.map((col) => (
+                          <option key={col} value={col} className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
+                            {col}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[
+                { label: 'Row Count', value: activeInsights?.row_count, icon: HashIcon },
+                { label: 'Null Values', value: activeInsights?.null_values, darkColor: 'text-red-400', lightColor: 'text-red-600' },
+                { label: 'Duplicate Rows', value: activeInsights?.duplicate_rows, darkColor: 'text-orange-400', lightColor: 'text-orange-600' },
+                { label: 'Minimum', value: activeInsights?.minimum },
+                { label: 'Maximum', value: activeInsights?.maximum },
+                { label: 'Average', value: activeInsights?.average },
+              ].map((item, idx) => (
+                <div key={idx} className={`p-5 rounded-xl transition-colors group shadow-sm duration-400 ${isDark
+                  ? 'bg-axis-burgundy-dark/50 border border-white/10 hover:border-axis-red/40'
+                  : 'bg-white border border-gray-200 hover:border-axis-burgundy/30'
+                  }`}>
+                  <div className={`text-xs font-medium mb-1 ${isDark ? 'text-white/50' : 'text-gray-500'}`}>{item.label}</div>
+                  <div className={`text-2xl font-bold group-hover:scale-105 transition-transform origin-left ${(isDark ? item.darkColor : item.lightColor) || (isDark ? 'text-white' : 'text-gray-900')
+                    }`}>
+                    {isLoading ? '...' : (item.value ?? '-')}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Action Buttons */}
         <div className={`flex items-center justify-end gap-4 pt-4 border-t ${isDark ? 'border-white/10' : 'border-gray-200'}`}>

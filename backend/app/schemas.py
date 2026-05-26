@@ -24,6 +24,7 @@ class SimulationRequest(BaseModel):
     tables: List[str]
     columns: List[str]
     sample_data_size: int
+    logic: Optional[str] = None
 
 class ColumnMetadata(BaseModel):
     friendly_name: str
@@ -37,6 +38,8 @@ class SimulationResponse(BaseModel):
     column_details: dict # Mapping of column_name -> ColumnMetadata
     dq_insights: DQInsights
     table_dq_insights: Optional[Dict[str, DQInsights]] = None
+    column_dq_insights: Optional[Dict[str, Dict[str, DQInsights]]] = None
+    primary_keys: Optional[Dict[str, str]] = None
 
 class GitHubPushRequest(BaseModel):
     dataframe: List[dict]
