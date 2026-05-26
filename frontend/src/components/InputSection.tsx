@@ -45,7 +45,7 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
     fetchMetadata();
   }, [apiBaseUrl]);
 
-  const formats = ['PySpark/SparkSQL', 'SQL', 'Apache Iceberg', 'MongoDB NoSQL', 'Firestore SQL', 'Firestore NoSQL', 'BigQuery SQL', 'Snowflake SQL', 'Oracle SQL', 'Cassandra Query Language (CQL)', 'DynamoDB', 'Redis', 'Elasticsearch Query DSL', 'Firebase Realtime Database', 'Apache Hive', 'Apache HBase', 'Apache Kudu', 'PostgreSQL', 'MySQL', 'MariaDB', 'SQL Server', 'SAP HANA', 'IBM Db2', 'Azure SQL Database', 'Azure Cosmos DB', 'Azure Data Lake Storage', 'Azure Synapse Analytics', 'Amazon Redshift', 'Apache Flink', 'Apache Storm'];
+  const formats = ['PySpark/SparkSQL', 'SQL', 'Apache Iceberg', 'MongoDB NoSQL', 'Firestore SQL', 'Firestore NoSQL', 'BigQuery SQL', 'Snowflake SQL', 'Oracle SQL', 'Cassandra Query Language (CQL)', 'DynamoDB', 'PostgreSQL', 'MySQL'];
   const availableTables = Object.keys(dbMetadata);
   const availableColumns = React.useMemo(() => {
     return Array.from(new Set(formData.tables.flatMap(table => dbMetadata[table] || [])));
