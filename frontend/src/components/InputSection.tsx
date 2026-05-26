@@ -1,6 +1,7 @@
 import React from 'react';
 import { Database, Code2, Layers, Type, Hash, Play, Sun, Moon } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
+import axios from 'axios';
 import MultiSelect from './MultiSelect';
 import CustomDropdown from './CustomDropdown';
 
@@ -31,12 +32,10 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
   React.useEffect(() => {
     const fetchMetadata = async () => {
       try {
-        const response = await fetch(`${apiBaseUrl}/metadata`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data && typeof data === 'object' && Object.keys(data).length > 0) {
-            setDbMetadata(data);
-          }
+        const response = await axios.get(`${apiBaseUrl}/metadata`);
+        const data = response.data;
+        if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+          setDbMetadata(data);
         }
       } catch (err) {
         console.warn('Failed to fetch dynamic MongoDB metadata, using default static schema:', err);
