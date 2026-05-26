@@ -17,57 +17,82 @@ export const useLoader = () => {
   return context;
 };
 
+// Module-level state tracking active requests
+let activeRequestsCount = 0;
+const listeners = new Set<(count: number) => void>();
+
+const notifyListeners = () => {
+  listeners.forEach((listener) => listener(activeRequestsCount));
+};
+
+// Register Axios interceptors immediately at module load time
+axios.interceptors.request.use(
+  (config) => {
+    activeRequestsCount++;
+    notifyListeners();
+    return config;
+  },
+  (error) => {
+    activeRequestsCount = Math.max(0, activeRequestsCount - 1);
+    notifyListeners();
+    return Promise.reject(error);
+  }
+);
+
+axios.interceptors.response.use(
+  (response) => {
+    activeRequestsCount = Math.max(0, activeRequestsCount - 1);
+    notifyListeners();
+    return response;
+  },
+  (error) => {
+    activeRequestsCount = Math.max(0, activeRequestsCount - 1);
+    notifyListeners();
+    return Promise.reject(error);
+  }
+);
+
+// Override native fetch immediately at module load time
+const originalFetch = window.fetch;
+window.fetch = async (...args) => {
+  activeRequestsCount++;
+  notifyListeners();
+  try {
+    const response = await originalFetch(...args);
+    return response;
+  } catch (error) {
+    throw error;
+  } finally {
+    activeRequestsCount = Math.max(0, activeRequestsCount - 1);
+    notifyListeners();
+  }
+};
+
 export const LoaderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [activeRequests, setActiveRequests] = useState(0);
+  const [activeRequests, setActiveRequests] = useState(activeRequestsCount);
 
   useEffect(() => {
-    // 1. Axios Interceptors
-    const reqInterceptor = axios.interceptors.request.use(
-      (config) => {
-        setActiveRequests((prev) => prev + 1);
-        return config;
-      },
-      (error) => {
-        setActiveRequests((prev) => Math.max(0, prev - 1));
-        return Promise.reject(error);
-      }
-    );
-
-    const resInterceptor = axios.interceptors.response.use(
-      (response) => {
-        setActiveRequests((prev) => Math.max(0, prev - 1));
-        return response;
-      },
-      (error) => {
-        setActiveRequests((prev) => Math.max(0, prev - 1));
-        return Promise.reject(error);
-      }
-    );
-
-    // 2. Window Fetch Interceptor
-    const originalFetch = window.fetch;
-    window.fetch = async (...args) => {
-      setActiveRequests((prev) => prev + 1);
-      try {
-        const response = await originalFetch(...args);
-        return response;
-      } catch (error) {
-        throw error;
-      } finally {
-        setActiveRequests((prev) => Math.max(0, prev - 1));
-      }
+    const handleCountChange = (count: number) => {
+      setActiveRequests(count);
     };
+    listeners.add(handleCountChange);
+    // Sync initial state if it changed between module load and mount
+    setActiveRequests(activeRequestsCount);
 
-    // Cleanup interceptors on unmount
     return () => {
-      axios.interceptors.request.eject(reqInterceptor);
-      axios.interceptors.response.eject(resInterceptor);
-      window.fetch = originalFetch;
+      listeners.delete(handleCountChange);
     };
   }, []);
 
-  const showLoader = () => setActiveRequests((prev) => prev + 1);
-  const hideLoader = () => setActiveRequests((prev) => Math.max(0, prev - 1));
+  const showLoader = () => {
+    activeRequestsCount++;
+    notifyListeners();
+  };
+
+  const hideLoader = () => {
+    activeRequestsCount = Math.max(0, activeRequestsCount - 1);
+    notifyListeners();
+  };
 
   const isLoading = activeRequests > 0;
 
@@ -78,3 +103,4 @@ export const LoaderProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     </LoaderContext.Provider>
   );
 };
+
