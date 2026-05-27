@@ -43,7 +43,7 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
   const [isExplanationOpen, setIsExplanationOpen] = React.useState(false);
 
   // GitHub push configuration states
-  const [podName, setPodName] = React.useState('data-pod-1');
+  const [podName, setPodName] = React.useState('Personalisation');
   const [projectName, setProjectName] = React.useState('sdlc-data-engineering');
   const [dataFileName, setDataFileName] = React.useState('');
   const [queryFileName, setQueryFileName] = React.useState('');
@@ -66,7 +66,7 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
     setCurrentPage(1);
 
     // Reset GitHub push options
-    setPodName('data-pod-1');
+    setPodName('Personalisation');
     setProjectName('sdlc-data-engineering');
     setDataFileName('');
     setQueryFileName('');
