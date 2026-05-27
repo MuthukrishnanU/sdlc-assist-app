@@ -546,9 +546,9 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                     : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'
                     }`}
                 >
-                  <option value="data-pod-1" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>data-pod-1</option>
-                  <option value="data-pod-2" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>data-pod-2</option>
-                  <option value="data-pod-3" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>data-pod-3</option>
+                  <option value="Personalisation" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>Personalisation</option>
+                  <option value="Data Science" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>Data Science</option>
+                  <option value="Deposit" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>Deposit</option>
                 </select>
               </div>
 
