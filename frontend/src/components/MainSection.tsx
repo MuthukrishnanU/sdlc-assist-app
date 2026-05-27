@@ -1,5 +1,5 @@
 import React from 'react';
-import { Terminal, Activity, Rocket, GitBranch, CheckCircle2, Search, Info, Database, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Terminal, Activity, Rocket, GitBranch, CheckCircle2, Search, Info, Database, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import axios from 'axios';
 
@@ -33,6 +33,9 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
   const [simulatedData, setSimulatedData] = React.useState<any[]>([]);
   const [columnDetailsMap, setColumnDetailsMap] = React.useState<Record<string, any>>({});
   const [searchQuery, setSearchQuery] = React.useState('');
+  const [smartFilterQuery, setSmartFilterQuery] = React.useState('');
+  const [sortColumn, setSortColumn] = React.useState<string | null>(null);
+  const [sortDirection, setSortDirection] = React.useState<'asc' | 'desc' | null>(null);
   const [selectedColumn, setSelectedColumn] = React.useState('');
   const [isSimulating, setIsSimulating] = React.useState(false);
   const [isPushing, setIsPushing] = React.useState(false);
@@ -55,6 +58,9 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
     setSimulatedData([]);
     setColumnDetailsMap({});
     setSearchQuery('');
+    setSmartFilterQuery('');
+    setSortColumn(null);
+    setSortDirection(null);
     setSelectedColumn('');
     setIsPushing(false);
     setCurrentPage(1);
@@ -97,17 +103,87 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
 
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery]);
+  }, [searchQuery, smartFilterQuery, sortColumn, sortDirection]);
+
+  const handleHeaderClick = (colName: string) => {
+    if (sortColumn !== colName) {
+      setSortColumn(colName);
+      setSortDirection('asc');
+    } else {
+      if (sortDirection === 'asc') {
+        setSortDirection('desc');
+      } else {
+        setSortDirection(null);
+        setSortColumn(null);
+      }
+    }
+  };
 
   const filteredRecords = React.useMemo(() => {
-    return simulatedData.filter(row => {
+    // 1. First, apply global search
+    let records = simulatedData.filter(row => {
       if (!searchQuery) return true;
       const query = searchQuery.toLowerCase();
       return Object.values(row).some(val =>
         val !== null && val !== undefined && String(val).toLowerCase().includes(query)
       );
     });
-  }, [simulatedData, searchQuery]);
+
+    // 2. Next, apply smart column filters
+    let parsedFilters: Record<string, string> = {};
+    try {
+      if (smartFilterQuery.trim()) {
+        const parsed = JSON.parse(smartFilterQuery);
+        if (typeof parsed === 'object' && parsed !== null) {
+          Object.keys(parsed).forEach(key => {
+            parsedFilters[key.toLowerCase()] = String(parsed[key]).toLowerCase();
+          });
+        }
+      }
+    } catch (e) {
+      // Ignore invalid JSON while typing
+    }
+
+    if (Object.keys(parsedFilters).length > 0) {
+      records = records.filter(row => {
+        return Object.keys(parsedFilters).every(filterKey => {
+          const rowKey = Object.keys(row).find(k => k.toLowerCase() === filterKey);
+          if (!rowKey) return false;
+          const cellValue = row[rowKey];
+          if (cellValue === null || cellValue === undefined) return false;
+          return String(cellValue).toLowerCase().includes(parsedFilters[filterKey]);
+        });
+      });
+    }
+
+    // 3. Finally, apply sorting
+    if (sortColumn && sortDirection) {
+      records = [...records].sort((a, b) => {
+        const valA = a[sortColumn];
+        const valB = b[sortColumn];
+
+        if (valA === valB) return 0;
+        if (valA === null || valA === undefined) return 1;
+        if (valB === null || valB === undefined) return -1;
+
+        // Determine if they are numeric
+        const numA = Number(valA);
+        const numB = Number(valB);
+        if (!isNaN(numA) && !isNaN(numB)) {
+          return sortDirection === 'asc' ? numA - numB : numB - numA;
+        }
+
+        // String comparison
+        const strA = String(valA).toLowerCase();
+        const strB = String(valB).toLowerCase();
+        return sortDirection === 'asc'
+          ? strA.localeCompare(strB)
+          : strB.localeCompare(strA);
+      });
+    }
+
+    return records;
+  }, [simulatedData, searchQuery, smartFilterQuery, sortColumn, sortDirection]);
 
   const totalPages = Math.ceil(filteredRecords.length / 10);
 
@@ -273,20 +349,65 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
             </div>
 
             {/* Controls Row */}
-            <div className="flex flex-col md:flex-row gap-4 items-stretch md:items-center justify-between">
-              {/* Search Bar */}
-              <div className="relative flex-1 max-w-md">
-                <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-white/40' : 'text-gray-400'}`} />
-                <input
-                  type="text"
-                  placeholder="Search simulated records..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className={`w-full pl-9 pr-4 py-2 text-sm rounded-xl focus:outline-none focus:ring-2 transition-all ${isDark
-                    ? 'bg-white/10 border border-white/10 text-white placeholder-white/30 focus:ring-axis-red/30'
-                    : 'bg-white border border-gray-200 text-gray-700 placeholder-gray-400 focus:ring-axis-burgundy/20'
-                    }`}
-                />
+            <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
+              <div className="flex flex-col sm:flex-row gap-3 flex-1">
+                {/* Search Bar */}
+                <div className="relative flex-1 max-w-sm">
+                  <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-white/40' : 'text-gray-400'}`} />
+                  <input
+                    type="text"
+                    placeholder="Search simulated records..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className={`w-full pl-9 pr-4 py-2 text-sm rounded-xl focus:outline-none focus:ring-2 transition-all ${isDark
+                      ? 'bg-white/10 border border-white/10 text-white placeholder-white/30 focus:ring-axis-red/30'
+                      : 'bg-white border border-gray-200 text-gray-700 placeholder-gray-400 focus:ring-axis-burgundy/20'
+                      }`}
+                  />
+                </div>
+
+                {/* Smart Column Filter Bar */}
+                <div className="relative flex-1 max-w-sm">
+                  <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-white/40' : 'text-gray-400'}`} />
+                  <input
+                    type="text"
+                    placeholder='Smart Filter e.g. {"loan_status":"Active"}'
+                    value={smartFilterQuery}
+                    onChange={(e) => setSmartFilterQuery(e.target.value)}
+                    className={`w-full pl-9 pr-16 py-2 text-sm rounded-xl focus:outline-none focus:ring-2 transition-all ${isDark
+                      ? 'bg-white/10 border border-white/10 text-white placeholder-white/30 focus:ring-axis-red/30'
+                      : 'bg-white border border-gray-200 text-gray-700 placeholder-gray-400 focus:ring-axis-burgundy/20'
+                      }`}
+                  />
+                  {smartFilterQuery.trim() && (() => {
+                    try {
+                      JSON.parse(smartFilterQuery);
+                      return null;
+                    } catch (e) {
+                      return (
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-red-500 animate-pulse">
+                          Invalid JSON
+                        </span>
+                      );
+                    }
+                  })()}
+                </div>
+
+                {/* Reset Sort Button */}
+                {sortColumn && (
+                  <button
+                    onClick={() => {
+                      setSortColumn(null);
+                      setSortDirection(null);
+                    }}
+                    className={`px-4 py-2 text-sm rounded-xl font-semibold transition-all border shrink-0 ${isDark
+                      ? 'bg-axis-red/20 border-axis-red/30 text-white hover:bg-axis-red/30'
+                      : 'bg-red-50 border-red-200 text-axis-burgundy hover:bg-red-100'
+                      }`}
+                  >
+                    Reset Sort ({sortColumn})
+                  </button>
+                )}
               </div>
 
               {/* Column Details Selector */}
@@ -377,11 +498,30 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                   <thead className={`text-xs uppercase tracking-wider transition-colors duration-400 border-b ${isDark ? 'bg-black/20 text-white/50 border-white/10' : 'bg-gray-50 text-gray-500 border-gray-200'
                     }`}>
                     <tr>
-                      {displayedColumns.map((col: string) => (
-                        <th key={col} scope="col" className="px-6 py-3 font-semibold">
-                          {col}
-                        </th>
-                      ))}
+                      {displayedColumns.map((col: string) => {
+                        const isSorted = sortColumn === col;
+                        return (
+                          <th
+                            key={col}
+                            scope="col"
+                            onClick={() => handleHeaderClick(col)}
+                            className="px-6 py-3 font-semibold cursor-pointer select-none hover:bg-black/5 dark:hover:bg-white/5 transition-colors duration-200"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span>{col}</span>
+                              {isSorted ? (
+                                sortDirection === 'asc' ? (
+                                  <ArrowUp className="w-3.5 h-3.5 text-axis-red" />
+                                ) : (
+                                  <ArrowDown className="w-3.5 h-3.5 text-axis-red" />
+                                )
+                              ) : (
+                                <ArrowUpDown className="w-3.5 h-3.5 opacity-30 hover:opacity-100 transition-opacity" />
+                              )}
+                            </div>
+                          </th>
+                        );
+                      })}
                     </tr>
                   </thead>
                   <tbody className={`divide-y transition-colors duration-400 ${isDark ? 'divide-white/10 text-gray-200' : 'divide-gray-100 text-gray-700'

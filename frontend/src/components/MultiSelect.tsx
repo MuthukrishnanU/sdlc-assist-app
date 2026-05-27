@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, X, Check } from 'lucide-react';
+import { ChevronDown, X, Check, Search } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 
 interface MultiSelectProps {
@@ -21,6 +21,7 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
 }) => {
   const { isDark } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -32,6 +33,12 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSearchTerm('');
+    }
+  }, [isOpen]);
 
   const toggleOption = (option: string) => {
     const isSelected = selected.includes(option);
@@ -46,6 +53,10 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
     e.stopPropagation();
     onChange(selected.filter(item => item !== option));
   };
+
+  const filteredOptions = options.filter(option =>
+    option.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
     <div className="space-y-2" ref={containerRef}>
@@ -107,11 +118,29 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
               ? 'bg-axis-burgundy-dark border border-white/10'
               : 'bg-white border border-gray-200'
           }`}>
+            <div className={`p-2 border-b ${isDark ? 'border-white/10' : 'border-gray-100'}`}>
+              <div className="relative">
+                <Search className={`absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-white/40' : 'text-gray-400'}`} />
+                <input
+                  type="text"
+                  placeholder={`Search ${label.toLowerCase()}...`}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  className={`w-full pl-8 pr-3 py-1.5 text-xs rounded-lg focus:outline-none focus:ring-1 transition-all ${
+                    isDark
+                      ? 'bg-white/5 border border-white/10 text-white placeholder-white/30 focus:ring-axis-red/30'
+                      : 'bg-gray-50 border border-gray-200 text-gray-700 placeholder-gray-400 focus:ring-axis-burgundy/20'
+                  }`}
+                />
+              </div>
+            </div>
+
             <div className="max-h-60 overflow-y-auto p-1.5 custom-scrollbar">
-              {options.length === 0 ? (
-                <div className={`px-3 py-2 text-sm ${isDark ? 'text-white/40' : 'text-gray-500'}`}>No options available</div>
+              {filteredOptions.length === 0 ? (
+                <div className={`px-3 py-2 text-sm ${isDark ? 'text-white/40' : 'text-gray-500'}`}>No options found</div>
               ) : (
-                options.map(option => {
+                filteredOptions.map(option => {
                   const isSelected = selected.includes(option);
                   return (
                     <div
