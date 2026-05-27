@@ -465,13 +465,17 @@ async def simulate_data(request: SimulationRequest):
         # Calculate real Data Quality insights from the queried dataset
         row_count = len(final_dataframe)
         null_count = 0
+        empty_strings_count = 0
         for r in final_dataframe:
             for val in r.values():
                 if val is None or val == "":
                     null_count += 1
+                if isinstance(val, str) and val.strip() == "":
+                    empty_strings_count += 1
 
         row_strings = [json.dumps(row, sort_keys=True) for row in final_dataframe]
         duplicate_count = len(row_strings) - len(set(row_strings))
+        distinct_rows_count = len(set(row_strings))
 
         # Find primary numeric column (prefer measures)
         numeric_col = None
@@ -509,7 +513,9 @@ async def simulate_data(request: SimulationRequest):
             "duplicate_rows": duplicate_count,
             "minimum": minimum,
             "maximum": maximum,
-            "average": average
+            "average": average,
+            "distinct_values": distinct_rows_count,
+            "empty_strings": empty_strings_count
         }
 
         # Calculate DQ insights for each individual selected table
@@ -524,16 +530,20 @@ async def simulate_data(request: SimulationRequest):
             # Calculate row count
             t_row_count = len(table_records)
             
-            # Calculate null count
+            # Calculate null count and empty strings
             t_null_count = 0
+            t_empty_strings_count = 0
             for r in table_records:
                 for val in r.values():
                     if val is None or val == "":
                         t_null_count += 1
+                    if isinstance(val, str) and val.strip() == "":
+                        t_empty_strings_count += 1
                         
             # Calculate duplicates
             t_row_strings = [json.dumps(row, sort_keys=True) for row in table_records]
             t_duplicate_count = len(t_row_strings) - len(set(t_row_strings))
+            t_distinct_rows_count = len(set(t_row_strings))
             
             # Find primary numeric column for this table
             t_numeric_col = None
@@ -571,7 +581,9 @@ async def simulate_data(request: SimulationRequest):
                 "duplicate_rows": t_duplicate_count,
                 "minimum": t_minimum,
                 "maximum": t_maximum,
-                "average": t_average
+                "average": t_average,
+                "distinct_values": t_distinct_rows_count,
+                "empty_strings": t_empty_strings_count
             }
 
         # Calculate columnwise and tablewise DQI and primary keys
@@ -593,9 +605,11 @@ async def simulate_data(request: SimulationRequest):
         def calculate_col_dq(records: list, col: str) -> dict:
             row_count = len(records)
             null_count = sum(1 for r in records if r.get(col) is None or r.get(col) == "")
+            empty_string_count = sum(1 for r in records if isinstance(r.get(col), str) and r.get(col).strip() == "")
             
             non_null_vals = [r.get(col) for r in records if r.get(col) is not None and r.get(col) != ""]
             duplicate_count = len(non_null_vals) - len(set(non_null_vals))
+            distinct_values_count = len(set(non_null_vals))
             
             numeric_values = []
             for val in non_null_vals:
@@ -614,7 +628,9 @@ async def simulate_data(request: SimulationRequest):
                 "duplicate_rows": duplicate_count,
                 "minimum": minimum,
                 "maximum": maximum,
-                "average": average
+                "average": average,
+                "distinct_values": distinct_values_count,
+                "empty_strings": empty_string_count
             }
 
         # Calculate for Output Table columns

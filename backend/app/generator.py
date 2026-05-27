@@ -34,6 +34,8 @@ class CodeGenerator:
                  - "minimum": (number/float) The lowest value in the primary numeric column.
                  - "maximum": (number/float) The highest value in the primary numeric column.
                  - "average": (number/float) The mean value of the primary numeric column.
+                 - "distinct_values": (integer) Number of distinct/unique rows.
+                 - "empty_strings": (integer) Number of empty string values across all columns.
             
             IMPORTANT: Every value in "dq_insights" must be a single number (int or float), NOT an object or list.
             """
@@ -66,7 +68,9 @@ class CodeGenerator:
                     duplicate_rows=2,
                     minimum=10.5,
                     maximum=500.0,
-                    average=255.25
+                    average=255.25,
+                    distinct_values=max(1, request.sample_data_size - 2),
+                    empty_strings=0
                 ),
                 prompt_tokens=0,
                 completion_tokens=0

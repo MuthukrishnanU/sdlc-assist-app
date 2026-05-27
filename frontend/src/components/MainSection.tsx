@@ -10,6 +10,8 @@ interface DQInsights {
   minimum: number | null;
   maximum: number | null;
   average: number | null;
+  distinct_values: number;
+  empty_strings: number;
 }
 
 interface MainSectionProps {
@@ -501,11 +503,13 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                 </div>
               )}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {[
                 { label: 'Row Count', value: activeInsights?.row_count, icon: HashIcon },
                 { label: 'Null Values', value: activeInsights?.null_values, darkColor: 'text-red-400', lightColor: 'text-red-600' },
                 { label: 'Duplicate Rows', value: activeInsights?.duplicate_rows, darkColor: 'text-orange-400', lightColor: 'text-orange-600' },
+                { label: 'Distinct Values', value: activeInsights?.distinct_values, darkColor: 'text-emerald-400', lightColor: 'text-emerald-600' },
+                { label: 'Whitespace / Empty Strings', value: activeInsights?.empty_strings, darkColor: 'text-amber-400', lightColor: 'text-amber-600' },
                 { label: 'Minimum', value: activeInsights?.minimum },
                 { label: 'Maximum', value: activeInsights?.maximum },
                 { label: 'Average', value: activeInsights?.average },

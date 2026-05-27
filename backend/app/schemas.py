@@ -15,6 +15,8 @@ class DQInsights(BaseModel):
     minimum: Optional[float] = None
     maximum: Optional[float] = None
     average: Optional[float] = None
+    distinct_values: int
+    empty_strings: int
 
 class CodeGenerationResponse(BaseModel):
     generated_code: str
