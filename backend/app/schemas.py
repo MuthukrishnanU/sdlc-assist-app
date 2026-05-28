@@ -7,6 +7,7 @@ class CodeGenerationRequest(BaseModel):
     columns: List[str] = Field(..., description="List of columns selected")
     logic: str = Field(..., description="Business logic in English")
     sample_data_size: int = Field(..., description="Number of rows to display in sample")
+    model: Optional[str] = Field("gpt-4o", description="LLM model to use for generation")
 
 class DQInsights(BaseModel):
     row_count: int

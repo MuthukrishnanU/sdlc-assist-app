@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database, Code2, Layers, Type, Hash, Play, Sun, Moon } from 'lucide-react';
+import { Database, Code2, Layers, Type, Hash, Play, Sun, Moon, Cpu } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import axios from 'axios';
 import MultiSelect from './MultiSelect';
@@ -26,7 +26,8 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
     tables: [] as string[],
     columns: [] as string[],
     logic: '',
-    sample_data_size: 100
+    sample_data_size: 100,
+    model: 'gpt-4o'
   });
 
   React.useEffect(() => {
@@ -50,6 +51,7 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
     return Array.from(new Set(formData.tables.flatMap(table => dbMetadata[table] || [])));
   }, [formData.tables, dbMetadata]);
   const sampleSizes = [100, 250, 500, 1000];
+  const models = ['gpt-4o', 'gemini-3.5-flash', 'mistral', 'llama', 'qwen', 'kimi'];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -148,6 +150,15 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
           value={formData.sample_data_size}
           onChange={(val) => setFormData({ ...formData, sample_data_size: val })}
           icon={<Hash className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}
+        />
+
+        {/* Select Model */}
+        <CustomDropdown
+          label="Select LLM Model"
+          options={models}
+          value={formData.model}
+          onChange={(val) => setFormData({ ...formData, model: val })}
+          icon={<Cpu className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}
         />
 
         {/* Logic in English */}

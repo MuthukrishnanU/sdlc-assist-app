@@ -6,6 +6,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+def parse_llm_json(content: str) -> dict:
+    content = content.strip()
+    if content.startswith("```"):
+        # find the first { and last }
+        start_idx = content.find("{")
+        end_idx = content.rfind("}")
+        if start_idx != -1 and end_idx != -1:
+            content = content[start_idx:end_idx+1]
+    return json.loads(content)
+
 class CodeGenerator:
     def __init__(self):
         self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -91,16 +101,106 @@ class CodeGenerator:
             IMPORTANT: Every value in "dq_insights" must be a single number (int or float), NOT an object or list.
             """
 
-            response = await self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"}
-            )
+            requested_model = request.model or "gpt-4o"
             
-            data = json.loads(response.choices[0].message.content)
-            
-            prompt_tokens = response.usage.prompt_tokens if response.usage else 0
-            completion_tokens = response.usage.completion_tokens if response.usage else 0
+            if requested_model == "gpt-4o":
+                response = await self.client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"}
+                )
+                data = parse_llm_json(response.choices[0].message.content)
+                prompt_tokens = response.usage.prompt_tokens if response.usage else 0
+                completion_tokens = response.usage.completion_tokens if response.usage else 0
+                
+            elif requested_model in ["gemini-2.5-flash", "gemini-3.1-flash", "gemini-3.5-flash"]:
+                gemini_key = os.getenv("GEMINI_API_KEY")
+                if not gemini_key:
+                    raise ValueError("GEMINI_API_KEY is not set in backend/.env file.")
+                
+                gemini_mapping = {
+                    "gemini-2.5-flash": "gemini-2.5-flash",
+                    "gemini-3.1-flash": "gemini-3.1-flash-lite",
+                    "gemini-3.5-flash": "gemini-3.5-flash"
+                }
+                gemini_model = gemini_mapping.get(requested_model, "gemini-2.5-flash")
+                
+                import httpx
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent?key={gemini_key}"
+                headers = {"Content-Type": "application/json"}
+                payload = {
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "responseMimeType": "application/json"
+                    }
+                }
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(url, headers=headers, json=payload, timeout=60.0)
+                    if response.status_code != 200:
+                        raise Exception(f"Gemini API Error ({response.status_code}): {response.text}")
+                    
+                    res_json = response.json()
+                    text = res_json['candidates'][0]['content']['parts'][0]['text']
+                    data = parse_llm_json(text)
+                    
+                    usage = res_json.get('usageMetadata', {})
+                    prompt_tokens = usage.get('promptTokenCount', 0)
+                    completion_tokens = usage.get('candidatesTokenCount', 0)
+                    
+            elif requested_model == "mistral":
+                mistral_key = os.getenv("MISTRALAI_API_KEY")
+                if not mistral_key:
+                    raise ValueError("MISTRALAI_API_KEY is not set in backend/.env file.")
+                
+                from langchain_mistralai import ChatMistralAI
+                
+                llm = ChatMistralAI(
+                    model="mistral-large-latest",
+                    api_key=mistral_key,
+                )
+                llm_json = llm.bind(response_format={"type": "json_object"})
+                response = await llm_json.ainvoke(prompt)
+                
+                data = parse_llm_json(response.content)
+                
+                usage_metadata = getattr(response, "usage_metadata", None) or {}
+                if usage_metadata:
+                    prompt_tokens = usage_metadata.get("input_tokens", 0)
+                    completion_tokens = usage_metadata.get("output_tokens", 0)
+                else:
+                    response_metadata = getattr(response, "response_metadata", None) or {}
+                    token_usage = response_metadata.get("token_usage", {})
+                    prompt_tokens = token_usage.get("prompt_tokens", 0)
+                    completion_tokens = token_usage.get("completion_tokens", 0)
+                    
+            elif requested_model in ["llama", "qwen", "kimi"]:
+                together_key = os.getenv("TOGETHER_API_KEY")
+                if not together_key:
+                    raise ValueError("TOGETHER_API_KEY is not set in backend/.env file.")
+                
+                together_mapping = {
+                    "llama": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+                    "qwen": "Qwen/Qwen2.5-7B-Instruct-Turbo",
+                    "kimi": "moonshotai/Kimi-K2.6"
+                }
+                together_model = together_mapping.get(requested_model)
+                if not together_model:
+                    raise ValueError(f"Together AI model mapping not found for {requested_model}")
+                
+                together_client = AsyncOpenAI(
+                    api_key=together_key,
+                    base_url="https://api.together.xyz/v1"
+                )
+                response = await together_client.chat.completions.create(
+                    model=together_model,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"}
+                )
+                data = parse_llm_json(response.choices[0].message.content)
+                prompt_tokens = response.usage.prompt_tokens if response.usage else 0
+                completion_tokens = response.usage.completion_tokens if response.usage else 0
+            else:
+                raise ValueError(f"Unsupported model: {requested_model}")
             
             return CodeGenerationResponse(
                 generated_code=data["generated_code"],
@@ -112,7 +212,7 @@ class CodeGenerator:
             print(f"Error in generation: {e}")
             # Fallback mock for demonstration
             return CodeGenerationResponse(
-                generated_code=f"-- Mock code for {request.format}\nSELECT {', '.join(request.columns)} FROM {request.tables[0]} WHERE ...",
+                generated_code=f"Error - {e.message}",
                 dq_insights=DQInsights(
                      row_count=request.sample_data_size,
                      null_values=5,
