@@ -1,5 +1,5 @@
 import React from 'react';
-import { Terminal, Activity, Rocket, GitBranch, CheckCircle2, Search, Info, Database, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Terminal, Activity, Rocket, GitBranch, CheckCircle2, Search, Info, Database, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, Download } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import axios from 'axios';
 
@@ -265,6 +265,88 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
     }
   };
 
+  const handleExport = (format: string) => {
+    if (simulatedData.length === 0) return;
+    
+    // Get columns
+    const columns = Object.keys(columnDetailsMap);
+    if (columns.length === 0) return;
+    
+    const filename = `simulated_output_${new Date().toISOString().slice(0, 10)}`;
+    
+    if (format === 'CSV') {
+      // Create CSV
+      const header = columns.join(',');
+      const rows = simulatedData.map(row => 
+        columns.map(col => {
+          let val = row[col] === null || row[col] === undefined ? '' : String(row[col]);
+          if (val.includes(',') || val.includes('"') || val.includes('\n') || val.includes('\r')) {
+            val = `"${val.replace(/"/g, '""')}"`;
+          }
+          return val;
+        }).join(',')
+      );
+      const csvContent = [header, ...rows].join('\r\n');
+      
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `${filename}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else if (format === 'XLS') {
+      // Create HTML table representation that Excel opens natively as XLS
+      const headerHtml = `<tr>${columns.map(col => `<th style="background-color: #A31D1D; color: white; border: 1px solid #ddd; padding: 8px;">${col}</th>`).join('')}</tr>`;
+      const rowsHtml = simulatedData.map(row => 
+        `<tr>${columns.map(col => {
+          const val = row[col] === null || row[col] === undefined ? '' : String(row[col]);
+          return `<td style="border: 1px solid #ddd; padding: 8px; font-family: monospace;">${val}</td>`;
+        }).join('')}</tr>`
+      ).join('\r\n');
+      
+      const tableHtml = `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+        <head>
+          <!--[if gte mso 9]>
+          <xml>
+            <x:ExcelWorkbook>
+              <x:ExcelWorksheets>
+                <x:ExcelWorksheet>
+                  <x:Name>Simulated Data</x:Name>
+                  <x:WorksheetOptions>
+                    <x:DisplayGridlines/>
+                  </x:WorksheetOptions>
+                </x:ExcelWorksheet>
+              </x:ExcelWorksheets>
+            </x:ExcelWorkbook>
+          </xml>
+          <![endif]-->
+          <meta http-equiv="content-type" content="text/plain; charset=UTF-8"/>
+        </head>
+        <body>
+          <table style="border-collapse: collapse; border: 1px solid #ddd;">
+            <thead>${headerHtml}</thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </body>
+        </html>
+      `;
+      
+      const blob = new Blob([tableHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `${filename}.xls`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
   return (
     <div className={`flex-1 p-8 overflow-y-auto transition-colors duration-400 ${isDark ? 'bg-axis-burgundy-deep' : 'bg-axis-gray'}`}>
       <div className="max-w-5xl mx-auto space-y-8">
@@ -433,63 +515,103 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
               </div>
             </div>
 
-            {/* Inspect Column Detail Card */}
-            {selectedColumn && columnDetailsMap[selectedColumn] && (
-              <div className={`p-4 rounded-xl border transition-colors duration-400 ${isDark
+            {/* Flex Container for Column Inspector and Export Options */}
+            <div className="flex flex-col md:flex-row gap-4 items-stretch">
+              {/* Inspect Column Detail Card */}
+              {selectedColumn && columnDetailsMap[selectedColumn] && (
+                <div className={`flex-1 p-4 rounded-xl border transition-colors duration-400 ${isDark
+                  ? 'bg-axis-burgundy-dark/30 border-white/5 text-white'
+                  : 'bg-white border-gray-100 text-gray-700'
+                  }`}>
+                  <div className="flex items-start gap-3">
+                    <div className={`p-2 rounded-lg mt-0.5 ${isDark ? 'bg-axis-red/10' : 'bg-axis-burgundy/5'}`}>
+                      <Info className={`w-4 h-4 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm">
+                        {columnDetailsMap[selectedColumn].friendly_name} <span className="font-mono text-xs opacity-50">({selectedColumn})</span>
+                      </h4>
+                      <p className={`text-xs mt-1 leading-relaxed ${isDark ? 'text-white/70' : 'text-gray-500'}`}>
+                        {columnDetailsMap[selectedColumn].description}
+                      </p>
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${isDark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-600'
+                          }`}>
+                          Type: {columnDetailsMap[selectedColumn].data_type}
+                        </span>
+                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${isDark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-600'
+                          }`}>
+                          Role: {columnDetailsMap[selectedColumn].role}
+                        </span>
+                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${columnDetailsMap[selectedColumn].classification.toUpperCase() === 'PII' || columnDetailsMap[selectedColumn].classification.toUpperCase() === 'PRIVATE'
+                          ? (isDark ? 'bg-red-500/20 text-red-300' : 'bg-red-50 text-red-600')
+                          : (isDark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-600')
+                          }`}>
+                          Classification: {columnDetailsMap[selectedColumn].classification}
+                        </span>
+                      </div>
+
+                      {columnDetailsMap[selectedColumn].lineage && (
+                        <div className="mt-4 pt-4 border-t border-dashed border-gray-200/50 dark:border-white/10 space-y-2">
+                          <div className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-white/40' : 'text-gray-400'}`}>
+                            Data Lineage
+                          </div>
+                          <div className="flex items-center gap-2 flex-wrap text-xs font-semibold">
+                            <span className={`px-2 py-0.5 rounded font-mono ${isDark ? 'bg-white/5 text-axis-cream' : 'bg-gray-100 text-axis-burgundy'}`}>
+                              {columnDetailsMap[selectedColumn].lineage.source_tables.join(', ')}
+                            </span>
+                            <span className="opacity-50">→</span>
+                            <span className={`px-2 py-0.5 rounded font-mono ${isDark ? 'bg-white/5 text-axis-cream' : 'bg-gray-100 text-axis-burgundy'}`}>
+                              {columnDetailsMap[selectedColumn].lineage.source_columns.join(', ')}
+                            </span>
+                          </div>
+                          <p className={`text-xs italic leading-relaxed ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
+                            {columnDetailsMap[selectedColumn].lineage.transformation}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Export As Options Card */}
+              <div className={`w-full md:w-64 p-4 rounded-xl border flex flex-col justify-between transition-colors duration-400 ${isDark
                 ? 'bg-axis-burgundy-dark/30 border-white/5 text-white'
                 : 'bg-white border-gray-100 text-gray-700'
                 }`}>
-                <div className="flex items-start gap-3">
-                  <div className={`p-2 rounded-lg mt-0.5 ${isDark ? 'bg-axis-red/10' : 'bg-axis-burgundy/5'}`}>
-                    <Info className={`w-4 h-4 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-sm">
-                      {columnDetailsMap[selectedColumn].friendly_name} <span className="font-mono text-xs opacity-50">({selectedColumn})</span>
-                    </h4>
-                    <p className={`text-xs mt-1 leading-relaxed ${isDark ? 'text-white/70' : 'text-gray-500'}`}>
-                      {columnDetailsMap[selectedColumn].description}
-                    </p>
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${isDark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-600'
-                        }`}>
-                        Type: {columnDetailsMap[selectedColumn].data_type}
-                      </span>
-                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${isDark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-600'
-                        }`}>
-                        Role: {columnDetailsMap[selectedColumn].role}
-                      </span>
-                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${columnDetailsMap[selectedColumn].classification.toUpperCase() === 'PII' || columnDetailsMap[selectedColumn].classification.toUpperCase() === 'PRIVATE'
-                        ? (isDark ? 'bg-red-500/20 text-red-300' : 'bg-red-50 text-red-600')
-                        : (isDark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-600')
-                        }`}>
-                        Classification: {columnDetailsMap[selectedColumn].classification}
-                      </span>
-                    </div>
-
-                    {columnDetailsMap[selectedColumn].lineage && (
-                      <div className="mt-4 pt-4 border-t border-dashed border-gray-200/50 dark:border-white/10 space-y-2">
-                        <div className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-white/40' : 'text-gray-400'}`}>
-                          Data Lineage
-                        </div>
-                        <div className="flex items-center gap-2 flex-wrap text-xs font-semibold">
-                          <span className={`px-2 py-0.5 rounded font-mono ${isDark ? 'bg-white/5 text-axis-cream' : 'bg-gray-100 text-axis-burgundy'}`}>
-                            {columnDetailsMap[selectedColumn].lineage.source_tables.join(', ')}
-                          </span>
-                          <span className="opacity-50">→</span>
-                          <span className={`px-2 py-0.5 rounded font-mono ${isDark ? 'bg-white/5 text-axis-cream' : 'bg-gray-100 text-axis-burgundy'}`}>
-                            {columnDetailsMap[selectedColumn].lineage.source_columns.join(', ')}
-                          </span>
-                        </div>
-                        <p className={`text-xs italic leading-relaxed ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
-                          {columnDetailsMap[selectedColumn].lineage.transformation}
-                        </p>
-                      </div>
-                    )}
-                  </div>
+                <div>
+                  <h4 className="font-bold text-sm flex items-center gap-1.5">
+                    <Download className={`w-4 h-4 ${isDark ? 'text-axis-cream' : 'text-axis-red'}`} /> Export Data
+                  </h4>
+                  <p className={`text-xs mt-1 leading-relaxed ${isDark ? 'text-white/60' : 'text-gray-400'}`}>
+                    Download the simulated preview table contents locally.
+                  </p>
+                </div>
+                <div className="mt-4 flex flex-col gap-1.5">
+                  <label className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-white/50' : 'text-gray-550'}`}>
+                    Export As
+                  </label>
+                  <select
+                    onChange={(e) => {
+                      const format = e.target.value;
+                      if (format) {
+                        handleExport(format);
+                        e.target.value = ""; // Reset selection
+                      }
+                    }}
+                    className={`px-3 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
+                      ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
+                      : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'
+                      }`}
+                  >
+                    <option value="" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>Select format...</option>
+                    <option value="CSV" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>CSV Format</option>
+                    <option value="XLS" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>Excel (XLS) Format</option>
+                  </select>
                 </div>
               </div>
-            )}
+            </div>
 
             {/* Table Component */}
             <div className={`rounded-2xl overflow-hidden shadow-xl border ${isDark ? 'bg-axis-burgundy-dark/40 border-white/10' : 'bg-white border-gray-200'
