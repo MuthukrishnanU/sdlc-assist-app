@@ -76,3 +76,12 @@ class GitHubPushRequest(BaseModel):
     query_file_name: Optional[str] = None
     pod_name: Optional[str] = None
     project_name: Optional[str] = None
+
+class LoginRequest(BaseModel):
+    userId: str
+    password: str
+
+class LoginResponse(BaseModel):
+    status: str
+    userId: str
+    role: str

@@ -9,17 +9,13 @@ interface InputSectionProps {
   onGenerate: (data: any) => void;
   isLoading: boolean;
   apiBaseUrl: string;
+  user: { userId: string; role: string };
+  onLogout: () => void;
 }
 
-const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiBaseUrl }) => {
+const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiBaseUrl, user, onLogout }) => {
   const { isDark, toggleTheme } = useTheme();
-  const [dbMetadata, setDbMetadata] = React.useState<Record<string, string[]>>({
-    'customerDetails': ['customer_id', 'first_name', 'last_name', 'email', 'phone', 'date_of_birth', 'kyc_status', 'credit_score', 'created_at'],
-    'accountBalances': ['account_id', 'customer_id', 'account_type', 'current_balance', 'available_balance', 'currency', 'branch_code', 'last_updated', 'is_active'],
-    'loanInfo': ['loan_id', 'customer_id', 'loan_type', 'principal_amount', 'interest_rate', 'tenure_months', 'start_date', 'loan_status', 'remaining_balance'],
-    'transactionsInfo': ['transaction_id', 'account_id', 'customer_id', 'amount', 'transaction_type', 'channel', 'timestamp', 'merchant_name', 'status'],
-    'dataQualityLogs': ['log_id', 'target_table', 'field_checked', 'rule_type', 'records_scanned', 'failed_count', 'execution_time_ms', 'run_date', 'status']
-  });
+  const [dbMetadata, setDbMetadata] = React.useState<Record<string, string[]>>({});
 
   const [formData, setFormData] = React.useState({
     format: 'PySpark',
@@ -33,17 +29,23 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
   React.useEffect(() => {
     const fetchMetadata = async () => {
       try {
-        const response = await axios.get(`${apiBaseUrl}/metadata`);
+        const response = await axios.get(`${apiBaseUrl}/metadata?role=${user.role}`);
         const data = response.data;
         if (data && typeof data === 'object' && Object.keys(data).length > 0) {
           setDbMetadata(data);
         }
       } catch (err) {
-        console.warn('Failed to fetch dynamic MongoDB metadata, using default static schema:', err);
+        console.warn('Failed to fetch dynamic MongoDB metadata:', err);
       }
     };
     fetchMetadata();
-  }, [apiBaseUrl]);
+    // Reset selection when switching role/user
+    setFormData(prev => ({
+      ...prev,
+      tables: [],
+      columns: []
+    }));
+  }, [apiBaseUrl, user.role]);
 
   const formats = ['PySpark', 'SparkSQL', 'SQL', 'Apache Iceberg', 'MongoDB NoSQL', 'Firestore SQL', 'Firestore NoSQL', 'BigQuery SQL', 'Snowflake SQL', 'Oracle SQL', 'Cassandra Query Language (CQL)', 'DynamoDB', 'PostgreSQL', 'MySQL'];
   const availableTables = Object.keys(dbMetadata);
@@ -58,19 +60,9 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
     onGenerate(formData);
   };
 
-  /*const toggleSelection = (field: 'tables' | 'columns', value: string) => {
-    setFormData(prev => {
-      const current = prev[field];
-      const next = current.includes(value)
-        ? current.filter(v => v !== value)
-        : [...current, value];
-      return { ...prev, [field]: next };
-    });
-  };*/
-
   return (
     <div className="flex flex-col h-full glass-sidebar p-6 w-80 shrink-0 overflow-y-auto">
-      <div className="flex items-center gap-2 mb-8">
+      <div className="flex items-center gap-2 mb-4">
         <div className={`p-2 rounded-lg ${isDark ? 'bg-white/10' : 'bg-axis-burgundy/10'}`}>
           <Code2 className={`w-6 h-6 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />
         </div>
@@ -81,6 +73,7 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
         {/* Dark Mode Toggle */}
         <button
           onClick={toggleTheme}
+          type="button"
           className={`ml-auto relative w-14 h-7 rounded-full transition-all duration-400 flex items-center ${isDark
             ? 'bg-axis-burgundy-dark border border-axis-red/30 shadow-[0_0_12px_rgba(235,17,101,0.15)]'
             : 'bg-gray-200 border border-gray-300'
@@ -100,6 +93,28 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
               <Sun className="w-3 h-3 text-amber-500" />
             )}
           </div>
+        </button>
+      </div>
+
+      {/* User profile card */}
+      <div className={`mb-6 p-4 rounded-2xl border flex items-center justify-between transition-colors duration-400 ${isDark
+          ? 'bg-white/5 border-white/10 text-white'
+          : 'bg-gray-50 border-gray-200 text-gray-700'
+        }`}>
+        <div className="overflow-hidden">
+          <div className="text-[10px] font-bold uppercase tracking-wider opacity-50">Profile</div>
+          <div className="font-bold text-sm truncate" title={user.userId}>{user.userId}</div>
+          <div className={`text-[9px] font-bold uppercase tracking-widest mt-1 px-2.5 py-0.5 rounded-full inline-block ${isDark ? 'bg-axis-red/20 text-axis-cream' : 'bg-axis-burgundy/10 text-axis-burgundy'}`}>
+            {user.role}
+          </div>
+        </div>
+        <button
+          onClick={onLogout}
+          type="button"
+          className="ml-2 px-3 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-xs font-extrabold transition-all text-red-500"
+          title="Sign Out"
+        >
+          Logout
         </button>
       </div>
 

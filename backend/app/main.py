@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from .schemas import CodeGenerationRequest, CodeGenerationResponse, SimulationRequest, SimulationResponse, GitHubPushRequest
+from .schemas import CodeGenerationRequest, CodeGenerationResponse, SimulationRequest, SimulationResponse, GitHubPushRequest, LoginRequest, LoginResponse
 from .generator import generator
 import uvicorn
 from datetime import datetime
@@ -47,18 +47,30 @@ async def root():
     return {"message": "SDLC Assist API is running"}
 
 @app.get("/metadata")
-async def get_metadata():
+async def get_metadata(role: str = None):
     try:
         if not MONGODB_URI:
             raise HTTPException(status_code=500, detail="MONGODB_URI is not set in environment variables")
         client = MongoClient(MONGODB_URI)
         db = client["bankingSdlcDB"]
-        collections = db.list_collection_names()
         
+        # Determine allowed collections based on role
+        if role == "Data Engineering":
+            allowed = ["customerDetails", "accountBalances", "loanInfo", "transactionsInfo", "dataQualityLogs"]
+        elif role == "Healthcare":
+            allowed = ["patientsInfo", "medicalRecords", "doctorDetails", "hospitalBeds", "healthcareDqLogs"]
+        elif role == "Media":
+            allowed = ["subscriberProfiles", "contentLibrary", "watchHistory", "billingTransactions", "mediaDqLogs"]
+        else:
+            # If no role or unrecognized role is provided, default to listing everything (except system. and users/metadata store)
+            allowed = [
+                "customerDetails", "accountBalances", "loanInfo", "transactionsInfo", "dataQualityLogs",
+                "patientsInfo", "medicalRecords", "doctorDetails", "hospitalBeds", "healthcareDqLogs",
+                "subscriberProfiles", "contentLibrary", "watchHistory", "billingTransactions", "mediaDqLogs"
+            ]
+            
         metadata = {}
-        for col_name in collections:
-            if col_name.startswith("system."):
-                continue
+        for col_name in allowed:
             doc = db[col_name].find_one()
             if doc:
                 # Extract fields and ignore MongoDB internal '_id' field
@@ -67,6 +79,28 @@ async def get_metadata():
             else:
                 metadata[col_name] = []
         return metadata
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/login", response_model=LoginResponse)
+async def login(request: LoginRequest):
+    try:
+        if not MONGODB_URI:
+            raise HTTPException(status_code=500, detail="MONGODB_URI is not set in environment variables")
+        client = MongoClient(MONGODB_URI)
+        db = client["bankingSdlcDB"]
+        
+        user = db["sdlcUsers"].find_one({"userId": request.userId})
+        if not user or user.get("password") != request.password:
+            raise HTTPException(status_code=401, detail="Invalid userId or password")
+            
+        return LoginResponse(
+            status="success",
+            userId=user["userId"],
+            role=user["role"]
+        )
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
