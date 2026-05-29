@@ -238,73 +238,108 @@ async def simulate_data(request: SimulationRequest):
         if not executed_successfully or result_df is None or (result_df.empty and has_base_data):
             if is_sql_format and executed_successfully and result_df is not None and result_df.empty and has_base_data:
                 print("DuckDB query returned 0 rows. Triggering resilient in-memory Pandas filter fallback.")
-            # Fallback local in-memory Pandas join & filter simulation
-            try:
-                if request.tables:
-                    merged_df = dfs[request.tables[0]].copy()
-                    for table in request.tables[1:]:
-                        other_df = dfs[table].copy()
-                        common_cols = list(set(merged_df.columns).intersection(set(other_df.columns)))
-                        join_key = None
-                        if 'customer_id' in common_cols:
-                            join_key = 'customer_id'
-                        elif 'account_id' in common_cols:
-                            join_key = 'account_id'
-                        elif common_cols:
-                            join_key = common_cols[0]
-                            
-                        if join_key:
-                            merged_df = pd.merge(merged_df, other_df, on=join_key, how='inner')
-                    
-                    # Apply logic filters in-memory
-                    # Look for keywords in user logic to filter rows
-                    logic_lower = (request.logic or "").lower()
-                    if "home" in logic_lower and 'loan_type' in merged_df.columns:
-                        merged_df = merged_df[merged_df['loan_type'].str.lower().str.contains('home', na=False)]
-                    if "active" in logic_lower and 'loan_status' in merged_df.columns:
-                        merged_df = merged_df[merged_df['loan_status'].str.lower().str.contains('active', na=False)]
-                    elif "active" in logic_lower and 'is_active' in merged_df.columns:
-                        merged_df = merged_df[merged_df['is_active'] == True]
-                    
-                    # Calculate computed columns ONLY if requested in logic/code
-                    code_lower = (code_str or "").lower()
-                    logic_lower = (request.logic or "").lower()
-                    
-                    if 'credit_score' in merged_df.columns and ('credit_score_bucket' in code_lower or 'credit_score_bucket' in logic_lower or 'credit score' in logic_lower):
-                        merged_df['credit_score_bucket'] = merged_df['credit_score'].apply(
-                            lambda x: 'Risky' if (x or 0) < 650 else 'Average' if (x or 0) <= 750 else 'Good' if (x or 0) <= 850 else 'Excellent'
-                        )
-                    if 'principal_amount' in merged_df.columns and ('principal_bucket' in code_lower or 'principal_bucket' in logic_lower or 'principal amount' in logic_lower or 'principal_amount' in logic_lower):
-                        merged_df['principal_bucket'] = merged_df['principal_amount'].apply(
-                            lambda x: 'low bucket' if (x or 0) < 1000000 else 'medium bucket' if (x or 0) <= 5000000 else 'high bucket'
-                        )
-                    
-                    # Calculate UPI inclinations
-                    upi_counts = {}
-                    if 'transactionsInfo' in data_by_table:
-                        for tx in data_by_table['transactionsInfo']:
-                            c_id = tx.get('customer_id')
-                            if c_id and tx.get('channel') == 'UPI' and tx.get('status') == 'Success':
-                                upi_counts[c_id] = upi_counts.get(c_id, 0) + 1
-                    if 'customer_id' in merged_df.columns and ('loan_customer_transactions' in code_lower or 'loan_customer_transactions' in logic_lower or 'upi inclined' in logic_lower or 'transactions' in logic_lower):
-                        merged_df['loan_customer_transactions'] = merged_df['customer_id'].apply(
-                            lambda x: 'UPI Inclined' if upi_counts.get(x, 0) > 10 else 'Standard'
-                        )
+            
+            # Try LLM-based translation simulator first
+            llm_simulated = False
+            if code_str:
+                try:
+                    py_code = await generator.generate_pandas_simulation(
+                        format=request.format or "PySpark",
+                        code_str=code_str,
+                        tables=request.tables,
+                        columns=request.columns,
+                        logic=request.logic or "",
+                        model=request.model or "gpt-4o"
+                    )
+                    if py_code:
+                        import numpy as np
+                        # Compile and execute the generated Python code
+                        local_vars = {}
+                        global_vars = {
+                            "pd": pd,
+                            "np": np,
+                            "datetime": datetime,
+                            "pd.DataFrame": pd.DataFrame,
+                            "pd.to_datetime": pd.to_datetime
+                        }
+                        exec(py_code, global_vars, local_vars)
+                        simulate_fn = local_vars.get("simulate")
+                        if simulate_fn:
+                            result_df = simulate_fn(dfs)
+                            executed_successfully = True
+                            llm_simulated = True
+                            print("LLM-based simulation succeeded.")
+                except Exception as e:
+                    print(f"LLM-based simulation failed: {e}")
+
+            if not llm_simulated:
+                # Fallback local in-memory Pandas join & filter simulation
+                try:
+                    if request.tables:
+                        merged_df = dfs[request.tables[0]].copy()
+                        for table in request.tables[1:]:
+                            other_df = dfs[table].copy()
+                            common_cols = list(set(merged_df.columns).intersection(set(other_df.columns)))
+                            join_key = None
+                            if 'customer_id' in common_cols:
+                                join_key = 'customer_id'
+                            elif 'account_id' in common_cols:
+                                join_key = 'account_id'
+                            elif common_cols:
+                                join_key = common_cols[0]
+                                
+                            if join_key:
+                                merged_df = pd.merge(merged_df, other_df, on=join_key, how='inner')
                         
-                    # Keep selected columns
-                    available_cols = [c for c in request.columns if c in merged_df.columns]
-                    # Also keep computed columns ONLY if they exist in the dataframe
-                    for c_col in ['credit_score_bucket', 'principal_bucket', 'loan_customer_transactions']:
-                        if c_col in merged_df.columns and c_col not in available_cols:
-                            available_cols.append(c_col)
+                        # Apply logic filters in-memory
+                        # Look for keywords in user logic to filter rows
+                        logic_lower = (request.logic or "").lower()
+                        if "home" in logic_lower and 'loan_type' in merged_df.columns:
+                            merged_df = merged_df[merged_df['loan_type'].str.lower().str.contains('home', na=False)]
+                        if "active" in logic_lower and 'loan_status' in merged_df.columns:
+                            merged_df = merged_df[merged_df['loan_status'].str.lower().str.contains('active', na=False)]
+                        elif "active" in logic_lower and 'is_active' in merged_df.columns:
+                            merged_df = merged_df[merged_df['is_active'] == True]
+                        
+                        # Calculate computed columns ONLY if requested in logic/code
+                        code_lower = (code_str or "").lower()
+                        logic_lower = (request.logic or "").lower()
+                        
+                        if 'credit_score' in merged_df.columns and ('credit_score_bucket' in code_lower or 'credit_score_bucket' in logic_lower or 'credit score' in logic_lower):
+                            merged_df['credit_score_bucket'] = merged_df['credit_score'].apply(
+                                lambda x: 'Risky' if (x or 0) < 650 else 'Average' if (x or 0) <= 750 else 'Good' if (x or 0) <= 850 else 'Excellent'
+                            )
+                        if 'principal_amount' in merged_df.columns and ('principal_bucket' in code_lower or 'principal_bucket' in logic_lower or 'principal amount' in logic_lower or 'principal_amount' in logic_lower):
+                            merged_df['principal_bucket'] = merged_df['principal_amount'].apply(
+                                lambda x: 'low bucket' if (x or 0) < 1000000 else 'medium bucket' if (x or 0) <= 5000000 else 'high bucket'
+                            )
+                        
+                        # Calculate UPI inclinations
+                        upi_counts = {}
+                        if 'transactionsInfo' in data_by_table:
+                            for tx in data_by_table['transactionsInfo']:
+                                c_id = tx.get('customer_id')
+                                if c_id and tx.get('channel') == 'UPI' and tx.get('status') == 'Success':
+                                    upi_counts[c_id] = upi_counts.get(c_id, 0) + 1
+                        if 'customer_id' in merged_df.columns and ('loan_customer_transactions' in code_lower or 'loan_customer_transactions' in logic_lower or 'upi inclined' in logic_lower or 'transactions' in logic_lower):
+                            merged_df['loan_customer_transactions'] = merged_df['customer_id'].apply(
+                                lambda x: 'UPI Inclined' if upi_counts.get(x, 0) > 10 else 'Standard'
+                            )
                             
-                    result_df = merged_df[available_cols] if available_cols else merged_df
-                    executed_successfully = True
-                else:
+                        # Keep selected columns
+                        available_cols = [c for c in request.columns if c in merged_df.columns]
+                        # Also keep computed columns ONLY if they exist in the dataframe
+                        for c_col in ['credit_score_bucket', 'principal_bucket', 'loan_customer_transactions']:
+                            if c_col in merged_df.columns and c_col not in available_cols:
+                                available_cols.append(c_col)
+                                
+                        result_df = merged_df[available_cols] if available_cols else merged_df
+                        executed_successfully = True
+                    else:
+                        result_df = pd.DataFrame()
+                except Exception as e:
+                    print(f"Fallback simulation failed: {e}")
                     result_df = pd.DataFrame()
-            except Exception as e:
-                print(f"Fallback simulation failed: {e}")
-                result_df = pd.DataFrame()
 
         # 5. Clean result DataFrame and apply sample data size limit
         if result_df is not None and not result_df.empty:

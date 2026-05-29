@@ -84,7 +84,12 @@ class CodeGenerator:
             Instructions:
             1. Generate highly optimized and clean code in the requested format.
             2. ALWAYS use the exact case-sensitive table names and column names as defined in the schemas above to ensure proper query execution.
-            3. The generated code MUST project, select, and output all columns specified in the 'Columns' list (i.e. {", ".join(request.columns)}) so that the simulated output contains all requested fields.
+            3. The generated code MUST project, select, and output the columns specified in the 'Columns' list (i.e. {", ".join(request.columns)}).
+               HOWEVER, you must also analyze the 'Logic' to smartly determine if the user query requires any computed, derived, or aggregated columns (e.g. sums, counts, averages, date/month extractions, conditional buckets, etc.).
+               If computed columns are needed:
+               - Smartly define and include these computed columns in the output projection/selection of the query/code.
+               - If the logic requires aggregation (like grouping by month and channel to get sum of amount and count), select/group by the grouping columns (including any derived grouping keys like month) and calculate the aggregated measures (like total amount and count of transactions). In this aggregated case, you may omit base columns that cannot be included in an aggregated query (like a unique ID), but make sure to include all columns from the 'Columns' list that are relevant to the aggregation.
+               - Give all computed columns clear, descriptive names.
             4. Provide realistic simulated aggregate Data Quality (DQ) insights for the entire result set.
             5. Return the response as a JSON object with exactly these keys: 
                - "generated_code": (string) The full code block.
@@ -226,5 +231,156 @@ class CodeGenerator:
                 prompt_tokens=0,
                 completion_tokens=0
             )
+
+    async def generate_pandas_simulation(self, format: str, code_str: str, tables: list, columns: list, logic: str, model: str = "gpt-4o") -> str:
+        try:
+            # Fetch schemas from MongoDB semanticMetaStore if available
+            mongodb_uri = os.getenv("MONGODB_URI")
+            schema_context = ""
+            if mongodb_uri:
+                try:
+                    from pymongo import MongoClient
+                    client = MongoClient(mongodb_uri)
+                    db = client["bankingSdlcDB"]
+                    schema_docs = list(db['semanticMetaStore'].find({"collection_name": {"$in": tables}}))
+                    
+                    schema_context_list = []
+                    for doc in schema_docs:
+                        col_name = doc.get("collection_name")
+                        desc = doc.get("description", "")
+                        pk = doc.get("primary_key", "")
+                        fields = doc.get("fields", [])
+                        
+                        fields_desc = []
+                        for f in fields:
+                            f_name = f.get("field_name")
+                            f_type = f.get("data_type")
+                            f_desc = f.get("description")
+                            fields_desc.append(f"- {f_name} ({f_type}): {f_desc}")
+                            
+                        relations = doc.get("relations", [])
+                        relations_desc = []
+                        for r in relations:
+                            relations_desc.append(f"Foreign key `{r.get('local_field')}` links to `{r.get('referenced_collection')}({r.get('referenced_field')})`")
+                            
+                        schema_info = f"Table: {col_name}\nDescription: {desc}\nPrimary Key: {pk}\nColumns:\n" + "\n".join(fields_desc)
+                        if relations_desc:
+                            schema_info += "\nRelations:\n" + "\n".join(relations_desc)
+                        schema_context_list.append(schema_info)
+                    
+                    if schema_context_list:
+                        schema_context = "\n\n=== Table Schemas ===\n" + "\n\n".join(schema_context_list)
+                except Exception as e:
+                    print(f"Failed to fetch schemas for simulation: {e}")
+
+            prompt = f"""
+            You are an expert Data Engineer specializing in Python and Pandas.
+            Your task is to write a Python script containing a function `simulate(dfs: dict) -> pd.DataFrame` that takes a dictionary `dfs` where the keys are the table names (as strings) and values are pandas DataFrames containing the table data.
+            This function MUST return a single pandas DataFrame representing the exact outcome of the generated query/code below.
+
+            Target Format of Generated Code: {format}
+            Generated Code:
+            {code_str}
+
+            User Logic / Request: {logic}
+            Tables: {", ".join(tables)}
+            Columns Selected: {", ".join(columns)}
+            {schema_context}
+
+            Instructions for the Python code:
+            1. Define a function `simulate(dfs: dict) -> pd.DataFrame:`.
+            2. Access each DataFrame from the `dfs` dictionary by its exact table name, e.g., `df_txn = dfs.get('transactionsInfo')`. Always check if a DataFrame exists and is not empty. If it is empty, handle it gracefully (e.g., return an empty DataFrame).
+            3. Implement the exact logic specified in the generated code and user request (joins between tables, where/having filters, group by clauses, aggregates like sum/count/avg, window functions, and order by sorting).
+            4. If the generated code performs aggregation (like grouping by month and channel, and calculating sum and count), your Python code MUST perform the exact same grouping and calculation, returning a DataFrame with those grouped and aggregated columns (e.g. `month`, `channel`, `total_amount`, `transaction_count`).
+            5. If the generated code does not aggregate, but instead generates row-level computed columns (like `credit_score_bucket` or custom categories), calculate them and return the DataFrame containing these computed columns along with the requested columns.
+            6. Handle date/timestamp parsing safely. For example, if a column is a timestamp, parse it with `pd.to_datetime` before extracting parts like month. E.g. `pd.to_datetime(df_txn['timestamp']).dt.strftime('%B')`.
+            7. Ensure the returned DataFrame contains the computed/derived/aggregated columns with clear, descriptive header names that match the generated query's select list.
+            8. Return the response as a JSON object with exactly one key "python_code" containing the python script as a string. Do not include markdown blocks (```python) or any other explanation inside the python_code string or JSON.
+            """
+
+            requested_model = model or "gpt-4o"
+            python_code = ""
+
+            if requested_model == "gpt-4o":
+                response = await self.client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"}
+                )
+                data = parse_llm_json(response.choices[0].message.content)
+                python_code = data.get("python_code", "")
+                
+            elif requested_model in ["gemini-2.5-flash", "gemini-3.1-flash", "gemini-3.5-flash"]:
+                gemini_key = os.getenv("GEMINI_API_KEY")
+                if not gemini_key:
+                    raise ValueError("GEMINI_API_KEY is not set.")
+                
+                gemini_mapping = {
+                    "gemini-2.5-flash": "gemini-2.5-flash",
+                    "gemini-3.1-flash": "gemini-3.1-flash-lite",
+                    "gemini-3.5-flash": "gemini-3.5-flash"
+                }
+                gemini_model = gemini_mapping.get(requested_model, "gemini-2.5-flash")
+                
+                import httpx
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent?key={gemini_key}"
+                headers = {"Content-Type": "application/json"}
+                payload = {
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "responseMimeType": "application/json"
+                    }
+                }
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(url, headers=headers, json=payload, timeout=60.0)
+                    if response.status_code == 200:
+                        res_json = response.json()
+                        text = res_json['candidates'][0]['content']['parts'][0]['text']
+                        data = parse_llm_json(text)
+                        python_code = data.get("python_code", "")
+                    
+            elif requested_model == "mistral":
+                mistral_key = os.getenv("MISTRALAI_API_KEY")
+                if mistral_key:
+                    from langchain_mistralai import ChatMistralAI
+                    llm = ChatMistralAI(model="mistral-large-latest", api_key=mistral_key)
+                    llm_json = llm.bind(response_format={"type": "json_object"})
+                    response = await llm_json.ainvoke(prompt)
+                    data = parse_llm_json(response.content)
+                    python_code = data.get("python_code", "")
+                    
+            elif requested_model in ["llama", "qwen", "kimi"]:
+                together_key = os.getenv("TOGETHER_API_KEY")
+                if together_key:
+                    together_mapping = {
+                        "llama": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+                        "qwen": "Qwen/Qwen2.5-7B-Instruct-Turbo",
+                        "kimi": "moonshotai/Kimi-K2.6"
+                    }
+                    together_model = together_mapping.get(requested_model)
+                    if together_model:
+                        together_client = AsyncOpenAI(api_key=together_key, base_url="https://api.together.xyz/v1")
+                        response = await together_client.chat.completions.create(
+                            model=together_model,
+                            messages=[{"role": "user", "content": prompt}],
+                            response_format={"type": "json_object"}
+                        )
+                        data = parse_llm_json(response.choices[0].message.content)
+                        python_code = data.get("python_code", "")
+
+            # If the model request didn't return code, fall back to gpt-4o
+            if not python_code and requested_model != "gpt-4o":
+                response = await self.client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"}
+                )
+                data = parse_llm_json(response.choices[0].message.content)
+                python_code = data.get("python_code", "")
+
+            return python_code
+        except Exception as e:
+            print(f"Error generating simulation code: {e}")
+            return ""
 
 generator = CodeGenerator()

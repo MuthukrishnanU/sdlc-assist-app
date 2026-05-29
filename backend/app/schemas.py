@@ -32,6 +32,7 @@ class SimulationRequest(BaseModel):
     logic: Optional[str] = None
     generated_code: Optional[str] = None
     format: Optional[str] = None
+    model: Optional[str] = "gpt-4o"
 
 class LineageInfo(BaseModel):
     source_tables: List[str]

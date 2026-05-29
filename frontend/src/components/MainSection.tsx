@@ -206,7 +206,8 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
         sample_data_size: formData.sample_data_size,
         logic: formData.logic,
         generated_code: code,
-        format: formData.format
+        format: formData.format,
+        model: formData.model
       });
       setSimulationData(response.data);
       setSimulatedData(response.data.dataframe);
