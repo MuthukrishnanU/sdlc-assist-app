@@ -570,6 +570,8 @@ def _pyspark_code_to_sql(code_str: str, table_names: list) -> str:
         if raw_cols is not None:
             # Clean PySpark column references safely
             cols = re.sub(r'(?:F\.)?col\(\s*["\']?(\w+)["\']?\s*\)', r'\1', raw_cols)
+            # Clean bracket column references: df['col'] -> col
+            cols = re.sub(r'\b\w+\[\s*["\']?(\w+)["\']?\s*\]', r'\1', cols)
             cols = re.sub(r'\b\w+_df\.(\w+)', r'\1', cols)
             cols = re.sub(r'\bdf\.(\w+)', r'\1', cols)
             cols = re.sub(r'\.alias\(\s*["\'](\w+)["\']\s*\)', r' AS \1', cols)
@@ -578,6 +580,27 @@ def _pyspark_code_to_sql(code_str: str, table_names: list) -> str:
         
         # Extract all .filter(...) and .where(...) conditions
         where_conditions = []
+        
+        # Helper to clean condition strings safely
+        def clean_cond(cond_str: str) -> str:
+            c = cond_str.strip()
+            # 1. Convert Python string literals on RHS of operators to single-quoted SQL strings
+            c = re.sub(r'([=!<>]+)\s*["\']([^"\']+)["\']', r"\1 '\2'", c)
+            # 2. Convert col("x") or F.col("x") to "x"
+            c = re.sub(r'(?:F\.)?col\(\s*["\']?(\w+)["\']?\s*\)', r'"\1"', c)
+            # 3. Convert df["x"] or df['x'] or df[x] to "x"
+            c = re.sub(r'\b\w+\[\s*["\']?(\w+)["\']?\s*\]', r'"\1"', c)
+            # 4. Convert df.x or df_df.x to "x"
+            c = re.sub(r'\b\w+_df\.(\w+)', r'"\1"', c)
+            c = re.sub(r'\bdf\.(\w+)', r'"\1"', c)
+            # 5. Convert Python == to SQL =
+            c = c.replace('==', '=')
+            c = c.replace('!=', '<>')
+            # 6. Convert logical operators
+            c = re.sub(r'\s*&\s*', ' AND ', c)
+            c = re.sub(r'\s*\|\s*', ' OR ', c)
+            return c
+
         idx = 0
         while True:
             next_filter = code_str.find(".filter(", idx)
@@ -616,21 +639,7 @@ def _pyspark_code_to_sql(code_str: str, table_names: list) -> str:
                         break
             
             if extracted_cond is not None:
-                cond = extracted_cond.strip()
-                cond = re.sub(r'(?:F\.)?col\(\s*["\']?(\w+)["\']?\s*\)', r'"\1"', cond)
-                cond = re.sub(r'\b\w+_df\.(\w+)', r'"\1"', cond)
-                cond = re.sub(r'\bdf\.(\w+)', r'"\1"', cond)
-                cond = cond.replace('==', '=')
-                cond = cond.replace('!=', '<>')
-                cond = re.sub(r'([=!<>]+)\s*["\']([^"\']+)["\']', r"\1 '\2'", cond)
-                cond = re.sub(r'"(\w+)"\.contains\(\s*["\'](\w+)["\']\s*\)', r'"\1" LIKE \'%\2%\'', cond)
-                cond = re.sub(r'"(\w+)"\.startswith\(\s*["\'](\w+)["\']\s*\)', r'"\1" LIKE \'\2%\'', cond)
-                cond = re.sub(r'"(\w+)"\.isNotNull\(\)', r'"\1" IS NOT NULL', cond)
-                cond = re.sub(r'"(\w+)"\.isNull\(\)', r'"\1" IS NULL', cond)
-                cond = re.sub(r'\s*&\s*', ' AND ', cond)
-                cond = re.sub(r'\s*\|\s*', ' OR ', cond)
-                cond = cond.strip('()')
-                where_conditions.append(cond)
+                where_conditions.append(clean_cond(extracted_cond))
             else:
                 break
                 
@@ -643,19 +652,44 @@ def _pyspark_code_to_sql(code_str: str, table_names: list) -> str:
             join_args = split_args(raw_join)
             if len(join_args) >= 2:
                 join_table = join_args[0]
+                
+                # Check for filter chained inside the join table parameter
+                for filter_method in ['.filter(', '.where(']:
+                    f_idx = join_table.find(filter_method)
+                    if f_idx != -1:
+                        f_start = f_idx + len(filter_method)
+                        f_paren_count = 1
+                        for i in range(f_start, len(join_table)):
+                            char = join_table[i]
+                            if char == '(':
+                                f_paren_count += 1
+                            elif char == ')':
+                                f_paren_count -= 1
+                                if f_paren_count == 0:
+                                    inner_cond = join_table[f_start:i]
+                                    where_conditions.append(clean_cond(inner_cond))
+                                    break
+                
+                # Extract base table variable name: e.g. loan_df.filter(...) -> loan_df
+                join_table_base = join_table.split('.')[0].split('[')[0].strip()
+                
                 # Strip _df or df from variable name to match with table name
-                clean_join_table = re.sub(r'_?df$', '', join_table, flags=re.IGNORECASE)
-                actual_join_table = join_table
+                clean_join_table = re.sub(r'_?df$', '', join_table_base, flags=re.IGNORECASE)
+                actual_join_table = join_table_base
                 for tn in table_names:
                     clean_tn = re.sub(r'_?df$', '', tn, flags=re.IGNORECASE)
                     if (clean_tn.lower() == clean_join_table.lower() or 
                         re.sub(r'(?<!^)(?=[A-Z])', '_', clean_tn).lower() == clean_join_table.lower()):
                         actual_join_table = tn
                         break
+                
                 join_cond_raw = join_args[1]
                 join_type = "inner"
                 if len(join_args) >= 3:
-                    join_type = join_args[2].strip('"\'')
+                    # Strip how= prefix if present: e.g. how="inner" -> inner
+                    join_type_raw = join_args[2]
+                    join_type_raw = re.sub(r'^how\s*=\s*', '', join_type_raw, flags=re.IGNORECASE)
+                    join_type = join_type_raw.strip('"\'')
                 join_type = join_type.upper()
                 
                 # Check if join_cond_raw is a single column name
@@ -665,10 +699,7 @@ def _pyspark_code_to_sql(code_str: str, table_names: list) -> str:
                     join_clause = f" {join_type} JOIN \"{actual_join_table}\" USING ({col_name})"
                 else:
                     # Parse join condition
-                    join_cond = re.sub(r'(?:F\.)?col\(\s*["\']?(\w+)["\']?\s*\)', r'"\1"', join_cond_raw)
-                    join_cond = re.sub(r'\b\w+_df\.(\w+)', r'"\1"', join_cond)
-                    join_cond = re.sub(r'\bdf\.(\w+)', r'"\1"', join_cond)
-                    join_cond = join_cond.replace('==', '=')
+                    join_cond = clean_cond(join_cond_raw)
                     join_clause = f" {join_type} JOIN \"{actual_join_table}\" ON {join_cond}"
         
         # Extract .groupBy(...).agg(...)
