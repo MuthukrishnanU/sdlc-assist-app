@@ -47,7 +47,7 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
     }));
   }, [apiBaseUrl, user.role]);
 
-  const formats = ['PySpark', 'SparkSQL', 'SQL', 'Apache Iceberg', 'MongoDB NoSQL', 'Firestore SQL', 'Firestore NoSQL', 'BigQuery SQL', 'Snowflake SQL', 'Oracle SQL', 'Cassandra Query Language (CQL)', 'DynamoDB', 'PostgreSQL', 'MySQL'];
+  const formats = ['PySpark', 'SparkSQL', 'SQL', 'PL/SQL', 'Apache Iceberg', 'MongoDB NoSQL', 'Firestore NoSQL', 'BigQuery SQL', 'Snowflake SQL', 'Oracle SQL', 'PostgreSQL', 'MySQL'];
   const availableTables = Object.keys(dbMetadata);
   const availableColumns = React.useMemo(() => {
     return Array.from(new Set(formData.tables.flatMap(table => dbMetadata[table] || [])));
@@ -98,8 +98,8 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
 
       {/* User profile card */}
       <div className={`mb-6 p-4 rounded-2xl border flex items-center justify-between transition-colors duration-400 ${isDark
-          ? 'bg-white/5 border-white/10 text-white'
-          : 'bg-gray-50 border-gray-200 text-gray-700'
+        ? 'bg-white/5 border-white/10 text-white'
+        : 'bg-gray-50 border-gray-200 text-gray-700'
         }`}>
         <div className="overflow-hidden">
           <div className="text-[10px] font-bold uppercase tracking-wider opacity-50">Profile</div>

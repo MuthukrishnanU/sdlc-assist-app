@@ -83,6 +83,12 @@ class CodeGenerator:
             
             Instructions:
             1. Generate highly optimized and clean code in the requested format.
+               Follow these formatting conventions:
+               - PySpark: Generate standard Python code using the PySpark DataFrame API (e.g. `df.select().filter()`).
+               - SparkSQL: Generate Python code that executes SQL using the Spark Session (e.g. `spark.sql('''SELECT ...''')`).
+               - SQL, PostgreSQL, MySQL, BigQuery, Snowflake, Oracle, Apache Iceberg: Generate raw SQL statements only.
+               - PL/SQL: Generate a SINGLE raw SQL SELECT statement using DECLARE/BEGIN/END blocks, cursors, or procedural PL/SQL syntax.
+               - MongoDB NoSQL: Generate MongoDB Python query code (e.g. `db.collection.aggregate([...])`).
             2. ALWAYS use the exact case-sensitive table names and column names as defined in the schemas above to ensure proper query execution.
             3. The generated code MUST project, select, and output the columns specified in the 'Columns' list (i.e. {", ".join(request.columns)}).
                HOWEVER, you must also analyze the 'Logic' to smartly determine if the user query requires any computed, derived, or aggregated columns (e.g. sums, counts, averages, date/month extractions, conditional buckets, etc.).
