@@ -646,61 +646,88 @@ def _pyspark_code_to_sql(code_str: str, table_names: list) -> str:
         if where_conditions:
             where_clause = " WHERE " + " AND ".join(where_conditions)
         
-        # Extract .join(...) 
-        raw_join = extract_method_args("join")
-        if raw_join is not None:
-            join_args = split_args(raw_join)
-            if len(join_args) >= 2:
-                join_table = join_args[0]
-                
-                # Check for filter chained inside the join table parameter
-                for filter_method in ['.filter(', '.where(']:
-                    f_idx = join_table.find(filter_method)
-                    if f_idx != -1:
-                        f_start = f_idx + len(filter_method)
-                        f_paren_count = 1
-                        for i in range(f_start, len(join_table)):
-                            char = join_table[i]
-                            if char == '(':
-                                f_paren_count += 1
-                            elif char == ')':
-                                f_paren_count -= 1
-                                if f_paren_count == 0:
-                                    inner_cond = join_table[f_start:i]
-                                    where_conditions.append(clean_cond(inner_cond))
-                                    break
-                
-                # Extract base table variable name: e.g. loan_df.filter(...) -> loan_df
-                join_table_base = join_table.split('.')[0].split('[')[0].strip()
-                
-                # Strip _df or df from variable name to match with table name
-                clean_join_table = re.sub(r'_?df$', '', join_table_base, flags=re.IGNORECASE)
-                actual_join_table = join_table_base
-                for tn in table_names:
-                    clean_tn = re.sub(r'_?df$', '', tn, flags=re.IGNORECASE)
-                    if (clean_tn.lower() == clean_join_table.lower() or 
-                        re.sub(r'(?<!^)(?=[A-Z])', '_', clean_tn).lower() == clean_join_table.lower()):
-                        actual_join_table = tn
+        # Extract all .join(...) calls
+        join_clauses = []
+        idx = 0
+        while True:
+            found_idx = code_str.find(".join(", idx)
+            if found_idx == -1:
+                break
+            
+            start_pos = found_idx + len(".join(")
+            paren_count = 1
+            extracted_join = None
+            for i in range(start_pos, len(code_str)):
+                char = code_str[i]
+                if char == '(':
+                    paren_count += 1
+                elif char == ')':
+                    paren_count -= 1
+                    if paren_count == 0:
+                        extracted_join = code_str[start_pos:i]
+                        idx = i + 1
                         break
+            
+            if extracted_join is not None:
+                join_args = split_args(extracted_join)
+                if len(join_args) >= 2:
+                    join_table = join_args[0]
+                    
+                    # Check for filter chained inside the join table parameter
+                    for filter_method in ['.filter(', '.where(']:
+                        f_idx = join_table.find(filter_method)
+                        if f_idx != -1:
+                            f_start = f_idx + len(filter_method)
+                            f_paren_count = 1
+                            for i in range(f_start, len(join_table)):
+                                char = join_table[i]
+                                if char == '(':
+                                    f_paren_count += 1
+                                elif char == ')':
+                                    f_paren_count -= 1
+                                    if f_paren_count == 0:
+                                        inner_cond = join_table[f_start:i]
+                                        where_conditions.append(clean_cond(inner_cond))
+                                        break
+                    
+                    # Extract base table variable name: e.g. loan_df.filter(...) -> loan_df
+                    join_table_base = join_table.split('.')[0].split('[')[0].strip()
+                    
+                    # Strip _df or df from variable name to match with table name
+                    clean_join_table = re.sub(r'_?df$', '', join_table_base, flags=re.IGNORECASE)
+                    actual_join_table = join_table_base
+                    for tn in table_names:
+                        clean_tn = re.sub(r'_?df$', '', tn, flags=re.IGNORECASE)
+                        if (clean_tn.lower() == clean_join_table.lower() or 
+                            re.sub(r'(?<!^)(?=[A-Z])', '_', clean_tn).lower() == clean_join_table.lower()):
+                            actual_join_table = tn
+                            break
+                    
+                    join_cond_raw = join_args[1]
+                    join_type = "inner"
+                    if len(join_args) >= 3:
+                        # Strip how= prefix if present: e.g. how="inner" -> inner
+                        join_type_raw = join_args[2]
+                        join_type_raw = re.sub(r'^how\s*=\s*', '', join_type_raw, flags=re.IGNORECASE)
+                        join_type = join_type_raw.strip('"\'')
+                    join_type = join_type.upper()
+                    
+                    # Clean up join condition: strip optional 'on=' keyword
+                    join_cond_clean = re.sub(r'^on\s*=\s*', '', join_cond_raw.strip(), flags=re.IGNORECASE)
+                    
+                    # Check if join_cond_clean is a single column name
+                    single_col_match = re.match(r'^["\']?(\w+)["\']?$', join_cond_clean.strip())
+                    if single_col_match:
+                        col_name = single_col_match.group(1)
+                        join_clauses.append(f" {join_type} JOIN \"{actual_join_table}\" USING ({col_name})")
+                    else:
+                        # Parse join condition
+                        join_cond = clean_cond(join_cond_clean)
+                        join_clauses.append(f" {join_type} JOIN \"{actual_join_table}\" ON {join_cond}")
+            else:
+                break
                 
-                join_cond_raw = join_args[1]
-                join_type = "inner"
-                if len(join_args) >= 3:
-                    # Strip how= prefix if present: e.g. how="inner" -> inner
-                    join_type_raw = join_args[2]
-                    join_type_raw = re.sub(r'^how\s*=\s*', '', join_type_raw, flags=re.IGNORECASE)
-                    join_type = join_type_raw.strip('"\'')
-                join_type = join_type.upper()
-                
-                # Check if join_cond_raw is a single column name
-                single_col_match = re.match(r'^["\']?(\w+)["\']?$', join_cond_raw.strip())
-                if single_col_match:
-                    col_name = single_col_match.group(1)
-                    join_clause = f" {join_type} JOIN \"{actual_join_table}\" USING ({col_name})"
-                else:
-                    # Parse join condition
-                    join_cond = clean_cond(join_cond_raw)
-                    join_clause = f" {join_type} JOIN \"{actual_join_table}\" ON {join_cond}"
+        join_clause = "".join(join_clauses)
         
         # Extract .groupBy(...).agg(...)
         raw_groupby = extract_method_args("groupBy")
@@ -811,6 +838,14 @@ async def simulate_data(request: SimulationRequest):
                 # Initialize local DuckDB Spark compatibility session
                 from duckdb.experimental.spark.sql import SparkSession
                 from duckdb.experimental.spark.sql.dataframe import DataFrame as DuckSparkDataFrame
+                import duckdb.experimental.spark.sql.functions as spark_funcs
+                
+                # Mock standard pyspark namespace dynamically so import statements resolve correctly
+                import sys
+                from types import ModuleType
+                sys.modules['pyspark'] = sys.modules.get('pyspark') or ModuleType('pyspark')
+                sys.modules['pyspark.sql'] = sys.modules.get('pyspark.sql') or ModuleType('pyspark.sql')
+                sys.modules['pyspark.sql.functions'] = spark_funcs
                 
                 spark = SparkSession.builder.getOrCreate()
                 
@@ -818,7 +853,18 @@ async def simulate_data(request: SimulationRequest):
                 globals_dict = {
                     "spark": spark,
                     "pd": pd,
-                    "datetime": datetime
+                    "datetime": datetime,
+                    "col": spark_funcs.col,
+                    "when": spark_funcs.when,
+                    "lit": spark_funcs.lit,
+                    "count": spark_funcs.count,
+                    "sum": spark_funcs.sum,
+                    "avg": spark_funcs.avg,
+                    "mean": spark_funcs.mean,
+                    "min": spark_funcs.min,
+                    "max": spark_funcs.max,
+                    "desc": spark_funcs.desc,
+                    "asc": spark_funcs.asc
                 }
                 for t_name, df_temp in dfs.items():
                     # Register table in the underlying DuckDB connection (even if empty to avoid Catalog Errors)
