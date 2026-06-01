@@ -223,7 +223,7 @@ class CodeGenerator:
             print(f"Error in generation: {e}")
             # Fallback mock for demonstration
             return CodeGenerationResponse(
-                generated_code=f"Error - {e.message}",
+                generated_code=f"Error - {str(e)}",
                 dq_insights=DQInsights(
                      row_count=request.sample_data_size,
                      null_values=5,

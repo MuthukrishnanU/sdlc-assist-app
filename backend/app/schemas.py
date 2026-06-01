@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Union
 
 class CodeGenerationRequest(BaseModel):
     format: str = Field(..., description="Target code format (e.g., SQL, PySpark)")
@@ -8,6 +8,8 @@ class CodeGenerationRequest(BaseModel):
     logic: str = Field(..., description="Business logic in English")
     sample_data_size: int = Field(..., description="Number of rows to display in sample")
     model: Optional[str] = Field("gpt-4o", description="LLM model to use for generation")
+    role: Optional[str] = Field(None, description="User role for tracking and quota checks")
+    userId: Optional[str] = Field(None, description="User ID for tracking and quota checks")
 
 class DQInsights(BaseModel):
     row_count: int
@@ -76,6 +78,11 @@ class GitHubPushRequest(BaseModel):
     query_file_name: Optional[str] = None
     pod_name: Optional[str] = None
     project_name: Optional[str] = None
+    userId: Optional[str] = None
+    role: Optional[str] = None
+    input_fields: Optional[dict] = None
+    column_dq_insights: Optional[dict] = None
+    dq_insights: Optional[Union[dict, List[dict]]] = None
 
 class LoginRequest(BaseModel):
     userId: str

@@ -1511,13 +1511,225 @@ async def simulate_data(request: SimulationRequest):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+PRICING = {
+    "gpt-4o": {"input": 0.000005, "output": 0.000015},
+    "gemini-3.5-flash": {"input": 0.000000075, "output": 0.0000003},
+    "mistral": {"input": 0.000002, "output": 0.000006},
+    "llama": {"input": 0.0000007, "output": 0.0000007},
+    "qwen": {"input": 0.0000003, "output": 0.0000003},
+    "kimi": {"input": 0.0000007, "output": 0.0000007}
+}
+
+def get_or_create_quota(db, role: str) -> dict:
+    if not role:
+        role = "Data Engineering"
+    quota = db["modelQuotas"].find_one({"role": role})
+    if not quota:
+        quota = {
+            "role": role,
+            "limits": {
+                "gpt-4o": { "total_tokens": 500000, "used_tokens": 0 },
+                "gemini-3.5-flash": { "total_tokens": 10000000, "used_tokens": 0 },
+                "mistral": { "total_tokens": 1000000, "used_tokens": 0 },
+                "llama": { "total_tokens": 1000000, "used_tokens": 0 },
+                "qwen": { "total_tokens": 1000000, "used_tokens": 0 },
+                "kimi": { "total_tokens": 1000000, "used_tokens": 0 }
+            },
+            "remaining_balance_usd": 15.00,
+            "reset_date": "2026-07-01T00:00:00Z"
+        }
+        db["modelQuotas"].insert_one(quota)
+    return quota
+
+@app.get("/quota")
+async def get_quota_details(role: str = "Data Engineering"):
+    try:
+        if not MONGODB_URI:
+            raise HTTPException(status_code=500, detail="MONGODB_URI is not set in environment variables")
+        client_db = MongoClient(MONGODB_URI)
+        db = client_db["bankingSdlcDB"]
+        quota = get_or_create_quota(db, role)
+        if "_id" in quota:
+            quota["_id"] = str(quota["_id"])
+        return quota
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/generate/estimate")
+async def estimate_tokens(request: CodeGenerationRequest):
+    try:
+        # Check quota status before doing the estimate
+        if MONGODB_URI and request.role:
+            client_db = MongoClient(MONGODB_URI)
+            db = client_db["bankingSdlcDB"]
+            quota = get_or_create_quota(db, request.role)
+            
+            model_key = request.model or "gpt-4o"
+            
+            # Check model tokens limit
+            model_quota = quota.get("limits", {}).get(model_key, {"total_tokens": 1000000, "used_tokens": 0})
+            if model_quota.get("used_tokens", 0) >= model_quota.get("total_tokens", 1000000):
+                raise HTTPException(
+                    status_code=429, 
+                    detail=f"Quota Exceeded: You have run out of tokens/credits for {model_key} model under the {request.role} role."
+                )
+            # Check financial budget balance
+            if quota.get("remaining_balance_usd", 15.00) <= 0:
+                raise HTTPException(
+                    status_code=429, 
+                    detail=f"Quota Exceeded: The credit balance for the {request.role} role is fully depleted ($0.00 remaining)."
+                )
+
+        schema_context = ""
+        if MONGODB_URI:
+            try:
+                client_db = MongoClient(MONGODB_URI)
+                db = client_db["bankingSdlcDB"]
+                schema_docs = list(db['semanticMetaStore'].find({"collection_name": {"$in": request.tables}}))
+                
+                schema_context_list = []
+                for doc in schema_docs:
+                    col_name = doc.get("collection_name")
+                    desc = doc.get("description", "")
+                    pk = doc.get("primary_key", "")
+                    fields = doc.get("fields", [])
+                    
+                    fields_desc = []
+                    for f in fields:
+                        f_name = f.get("field_name")
+                        f_type = f.get("data_type")
+                        f_desc = f.get("description")
+                        fields_desc.append(f"- {f_name} ({f_type}): {f_desc}")
+                        
+                    relations = doc.get("relations", [])
+                    relations_desc = []
+                    for r in relations:
+                        relations_desc.append(f"Foreign key `{r.get('local_field')}` links to `{r.get('referenced_collection')}({r.get('referenced_field')})`")
+                        
+                    schema_info = f"Table: {col_name}\nDescription: {desc}\nPrimary Key: {pk}\nColumns:\n" + "\n".join(fields_desc)
+                    if relations_desc:
+                        schema_info += "\nRelations:\n" + "\n".join(relations_desc)
+                    schema_context_list.append(schema_info)
+                
+                if schema_context_list:
+                    schema_context = "\n\n=== Table Schemas ===\n" + "\n\n".join(schema_context_list)
+            except Exception as e:
+                print(f"Failed to fetch schemas for estimation: {e}")
+
+        prompt = f"""
+        You are an expert Data Engineer and AI Assistant specializing in SDLC automation.
+        Generate the requested code based on the following input:
+        
+        Format: {request.format}
+        Tables: {", ".join(request.tables)}
+        Columns: {", ".join(request.columns)}
+        Logic: {request.logic}
+        Sample Data Size: {request.sample_data_size}
+        {schema_context}
+        """
+        approx_prompt_tokens = len(prompt) // 4
+        approx_prompt_tokens += 300  # System/instructions padding
+        approx_completion_tokens = 450
+        
+        model_key = request.model or "gpt-4o"
+        rates = PRICING.get(model_key, {"input": 0.000005, "output": 0.000015})
+        cost = (approx_prompt_tokens * rates["input"]) + (approx_completion_tokens * rates["output"])
+        
+        return {
+            "model": model_key,
+            "approx_input_tokens": approx_prompt_tokens,
+            "approx_output_tokens": approx_completion_tokens,
+            "approx_cost_usd": round(cost, 6)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/role-token-consumption")
+async def get_role_token_consumption(role: str):
+    try:
+        if not MONGODB_URI:
+            raise HTTPException(status_code=500, detail="MONGODB_URI is not set in environment variables")
+        client_db = MongoClient(MONGODB_URI)
+        db = client_db["bankingSdlcDB"]
+        
+        cursor = db["roleTokenConsumption"].find({"role": role}).sort("timestamp", -1).limit(100)
+        logs = []
+        for doc in cursor:
+            t = doc.get("timestamp")
+            timestamp_str = t.strftime("%Y-%m-%d %H:%M:%S") if isinstance(t, datetime) else str(t)
+            logs.append({
+                "userId": doc.get("userId", "unknown"),
+                "role": doc.get("role", ""),
+                "timestamp": timestamp_str,
+                "tokens_consumed": doc.get("tokens_consumed", 0),
+                "cost": doc.get("cost", 0.0)
+            })
+        return logs
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/generate", response_model=CodeGenerationResponse)
 async def generate_code(request: CodeGenerationRequest):
     try:
+        db = None
+        role = request.role
+        model_key = request.model or "gpt-4o"
+        
+        if MONGODB_URI and role:
+            client_db = MongoClient(MONGODB_URI)
+            db = client_db["bankingSdlcDB"]
+            quota = get_or_create_quota(db, role)
+            
+            # Check model tokens limit
+            model_quota = quota.get("limits", {}).get(model_key, {"total_tokens": 1000000, "used_tokens": 0})
+            if model_quota.get("used_tokens", 0) >= model_quota.get("total_tokens", 1000000):
+                raise HTTPException(
+                    status_code=429, 
+                    detail=f"Quota Exceeded: You have run out of tokens/credits for {model_key} model under the {role} role."
+                )
+            # Check financial budget balance
+            if quota.get("remaining_balance_usd", 15.00) <= 0:
+                raise HTTPException(
+                    status_code=429, 
+                    detail=f"Quota Exceeded: The credit balance for the {role} role is fully depleted ($0.00 remaining)."
+                )
+
         result = await generator.generate(request)
+        if db is not None and role and result:
+            p_tokens = result.prompt_tokens or 0
+            c_tokens = result.completion_tokens or 0
+            total_tokens = p_tokens + c_tokens
+            
+            rates = PRICING.get(model_key, {"input": 0.000005, "output": 0.000015})
+            cost = (p_tokens * rates["input"]) + (c_tokens * rates["output"])
+            
+            # Update database
+            db["modelQuotas"].update_one(
+                {"role": role},
+                {
+                    "$inc": {
+                        f"limits.{model_key}.used_tokens": total_tokens,
+                        "remaining_balance_usd": -cost
+                    }
+                }
+            )
+            
+            # Insert usage audit record
+            log_doc = {
+                "userId": request.userId or "unknown",
+                "role": role,
+                "timestamp": datetime.now(),
+                "tokens_consumed": total_tokens,
+                "cost": round(cost, 6)
+            }
+            db["roleTokenConsumption"].insert_one(log_doc)
+            
         return result
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 def convert_to_csv(data):
     if not data:
         return ""
@@ -1546,10 +1758,10 @@ async def push_to_github(request: GitHubPushRequest):
                 detail="GITHUB_REPO is not configured in backend/.env file."
             )
             
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
         
         # 1. Determine file names
-        data_file_name = (request.data_file_name or "").strip() or f"simulated_data_{timestamp}.csv"
+        data_file_name = (request.data_file_name or "").strip() or f"simulated_data_{timestamp_str}.csv"
         if not data_file_name.endswith('.csv'):
             data_file_name += '.csv'
             
@@ -1560,7 +1772,7 @@ async def push_to_github(request: GitHubPushRequest):
         elif "mongodb" in fmt or "noscript" in fmt or "js" in fmt or "firestore" in fmt:
             ext = ".js"
             
-        code_file_name = (request.query_file_name or "").strip() or f"query_{timestamp}{ext}"
+        code_file_name = (request.query_file_name or "").strip() or f"query_{timestamp_str}{ext}"
         if not code_file_name.endswith(ext):
             code_file_name += ext
 
@@ -1583,7 +1795,6 @@ async def push_to_github(request: GitHubPushRequest):
         data_url = f"https://api.github.com/repos/{repo}/contents/{data_path}"
         
         async with httpx.AsyncClient() as client:
-            # Check if CSV file already exists
             get_resp = await client.get(data_url, headers=headers)
             sha = get_resp.json().get("sha") if get_resp.status_code == 200 else None
             
@@ -1600,13 +1811,11 @@ async def push_to_github(request: GitHubPushRequest):
                 raise HTTPException(status_code=put_resp.status_code, detail=f"GitHub API CSV Error: {error_detail}")
                 
             data_html_url = put_resp.json().get("content", {}).get("html_url", "")
-            
             code_html_url = ""
             
             # 4. Push generated code query if present
             if request.generated_code:
                 code_url = f"https://api.github.com/repos/{repo}/contents/{code_path}"
-                
                 base64_code_content = base64.b64encode(request.generated_code.encode("utf-8")).decode("utf-8")
                 
                 get_code_resp = await client.get(code_url, headers=headers)
@@ -1625,7 +1834,41 @@ async def push_to_github(request: GitHubPushRequest):
                     raise HTTPException(status_code=put_code_resp.status_code, detail=f"GitHub API Code Error: {error_detail}")
                     
                 code_html_url = put_code_resp.json().get("content", {}).get("html_url", "")
-                
+            
+            # 5. Push details to pushAllDetails collection in MongoDB
+            if MONGODB_URI:
+                try:
+                    client_db = MongoClient(MONGODB_URI)
+                    db = client_db["bankingSdlcDB"]
+                    
+                    # Extract tables from input_fields
+                    tables = []
+                    if request.input_fields and isinstance(request.input_fields, dict):
+                        tables = request.input_fields.get("tables") or []
+                        if not isinstance(tables, list):
+                            tables = [str(tables)]
+                    
+                    table_concat = "_".join(tables)
+                    unique_table_name = f"{table_concat}_{timestamp_str}" if table_concat else f"simulated_{timestamp_str}"
+                    
+                    push_log = {
+                        "userId": request.userId or "unknown",
+                        "role": request.role or "unknown",
+                        "timestamp": datetime.now(),
+                        "inputFields": request.input_fields or {},
+                        "DQ Insights": request.column_dq_insights or {},
+                        "codeOutput": request.generated_code or "",
+                        "outputTableData": request.dataframe or {},
+                        "uniqueTableName": unique_table_name,
+                        "podName": request.pod_name or "unknown",
+                        "projectName": request.project_name or "unknown",
+                        "dataFileName": data_path or "unknown",
+                        "queryFileName": code_path or "unknown",
+                    }
+                    db["pushAllDetails"].insert_one(push_log)
+                except Exception as mongo_err:
+                    print(f"Failed to save push details to MongoDB: {mongo_err}")
+            
             return {
                 "status": "success",
                 "data_file_path": data_path,
@@ -1637,5 +1880,6 @@ async def push_to_github(request: GitHubPushRequest):
         if isinstance(e, HTTPException):
             raise e
         raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

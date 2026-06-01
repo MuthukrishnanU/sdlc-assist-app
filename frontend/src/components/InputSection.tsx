@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database, Code2, Layers, Type, Hash, Play, Sun, Moon, Cpu } from 'lucide-react';
+import { Database, Code2, Layers, Type, Hash, Play, Sun, Moon, Cpu, AlertCircle, X } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import axios from 'axios';
 import MultiSelect from './MultiSelect';
@@ -25,6 +25,15 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
     sample_data_size: 100,
     model: 'gpt-4o'
   });
+
+  const [isEstimateModalOpen, setIsEstimateModalOpen] = React.useState(false);
+  const [estimateData, setEstimateData] = React.useState<any>(null);
+  const [estimateLoading, setEstimateLoading] = React.useState(false);
+
+  const handleConfirmGenerate = () => {
+    setIsEstimateModalOpen(false);
+    onGenerate(formData);
+  };
 
   React.useEffect(() => {
     const fetchMetadata = async () => {
@@ -55,9 +64,28 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
   const sampleSizes = [100, 250, 500, 1000];
   const models = ['gpt-4o', 'gemini-3.5-flash', 'mistral', 'llama', 'qwen', 'kimi'];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onGenerate(formData);
+    if (!formData.logic.trim()) {
+      alert("Please describe your query requirements in the logic section.");
+      return;
+    }
+    setEstimateLoading(true);
+    try {
+      const response = await axios.post(`${apiBaseUrl}/generate/estimate`, {
+        ...formData,
+        role: user.role,
+        userId: user.userId
+      });
+      setEstimateData(response.data);
+      setIsEstimateModalOpen(true);
+    } catch (err: any) {
+      console.error('Failed to get token estimate:', err);
+      const errMsg = err.response?.data?.detail || 'Failed to estimate token usage.';
+      alert(errMsg);
+    } finally {
+      setEstimateLoading(false);
+    }
   };
 
   return (
@@ -167,7 +195,7 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
           icon={<Hash className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}
         />
 
-        {/* Select Model */}
+        {/* Select LLM Model */}
         <CustomDropdown
           label="Select LLM Model"
           options={models}
@@ -194,13 +222,13 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
 
         <button
           type="submit"
-          disabled={isLoading}
+          disabled={isLoading || estimateLoading}
           className={`w-full hover:brightness-110 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed group ${isDark
             ? 'bg-gradient-to-r from-axis-red to-axis-burgundy shadow-lg shadow-black/30'
             : 'bg-gradient-to-r from-axis-burgundy to-axis-red shadow-lg shadow-axis-burgundy/20'
             }`}
         >
-          {isLoading ? (
+          {isLoading || estimateLoading ? (
             <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
           ) : (
             <>
@@ -210,6 +238,71 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
           )}
         </button>
       </form>
+
+
+
+      {/* Token Usage Confirmation Modal */}
+      {isEstimateModalOpen && estimateData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className={`w-full max-w-md rounded-2xl p-6 shadow-2xl relative border ${isDark ? 'bg-axis-burgundy-dark text-white border-white/10' : 'bg-white text-gray-800 border-gray-200'
+            }`}>
+            <button
+              type="button"
+              onClick={() => setIsEstimateModalOpen(false)}
+              className={`absolute top-4 right-4 p-1.5 rounded-lg hover:bg-black/10 transition-colors ${isDark ? 'text-white/60 hover:text-white' : 'text-gray-400 hover:text-gray-600'}`}
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className={`text-lg font-bold flex items-center gap-2 mb-2 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`}>
+              <AlertCircle className="w-5 h-5 text-amber-500 animate-pulse" /> Confirm Generation Cost
+            </h3>
+            <p className={`text-xs mb-6 ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
+              Please review the estimated token consumption and query cost for your code generation.
+            </p>
+
+            <div className={`p-4 rounded-xl border space-y-3 mb-6 font-semibold text-xs transition-colors duration-400 ${isDark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-150'
+              }`}>
+              <div className="flex justify-between">
+                <span className="opacity-60">LLM Model:</span>
+                <span className="font-mono">{estimateData.model}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="opacity-60">Approx. Input Tokens:</span>
+                <span>{estimateData.approx_input_tokens.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="opacity-60">Approx. Output Tokens:</span>
+                <span>{estimateData.approx_output_tokens.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between border-t pt-2 border-dashed border-gray-300 dark:border-white/10">
+                <span className="opacity-60">Estimated Cost:</span>
+                <span className="text-emerald-500">${estimateData.approx_cost_usd.toFixed(6)} USD</span>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setIsEstimateModalOpen(false)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${isDark
+                  ? 'border-white/10 bg-white/5 hover:bg-white/10 text-white'
+                  : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
+                  }`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmGenerate}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-axis-red hover:brightness-110 shadow-lg shadow-axis-red/20 transition-all"
+              >
+                Confirm & Generate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

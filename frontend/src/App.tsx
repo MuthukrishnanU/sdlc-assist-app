@@ -15,7 +15,7 @@ function App() {
   const [dqInsights, setDqInsights] = React.useState<any | null>(null);
   const [lastFormData, setLastFormData] = React.useState<any | null>(null);
   const [loading, setLoading] = React.useState(false);
-  const [generationTokens, setGenerationTokens] = React.useState<{prompt_tokens: number, completion_tokens: number} | null>(null);
+  const [generationTokens, setGenerationTokens] = React.useState<{ prompt_tokens: number, completion_tokens: number } | null>(null);
 
   React.useEffect(() => {
     const storedUser = localStorage.getItem('sdlc_user');
@@ -51,7 +51,11 @@ function App() {
     setLastFormData(formData);
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/generate`, formData);
+      const response = await axios.post(`${API_BASE_URL}/generate`, {
+        ...formData,
+        role: user?.role,
+        userId: user?.userId
+      });
       setGeneratedCode(response.data.generated_code);
       setDqInsights(response.data.dq_insights);
       setGenerationTokens({
@@ -60,7 +64,7 @@ function App() {
       });
     } catch (error) {
       console.error('Error generating code:', error);
-      alert('Failed to generate code. Please ensure the backend is running and OpenAI API key is configured.');
+      alert('Failed to generate code. Please ensure the backend is running and LLM API key is configured.');
     } finally {
       setLoading(false);
     }
@@ -77,10 +81,10 @@ function App() {
   return (
     <ThemeProvider>
       <div className="flex h-screen overflow-hidden">
-        <InputSection 
-          onGenerate={handleGenerate} 
-          isLoading={loading} 
-          apiBaseUrl={API_BASE_URL} 
+        <InputSection
+          onGenerate={handleGenerate}
+          isLoading={loading}
+          apiBaseUrl={API_BASE_URL}
           user={user}
           onLogout={handleLogout}
         />
@@ -91,6 +95,7 @@ function App() {
           apiBaseUrl={API_BASE_URL}
           formData={lastFormData}
           generationTokens={generationTokens}
+          user={user}
         />
       </div>
     </ThemeProvider>
