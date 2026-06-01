@@ -330,7 +330,7 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
     const columns = Object.keys(columnDetailsMap);
     if (columns.length === 0) return;
 
-    const filename = `simulated_output_${new Date().toISOString().slice(0, 10)}`;
+    const filename = `simulated_output_${new Date().toISOString()}`;
 
     if (format === 'CSV') {
       // Create CSV
