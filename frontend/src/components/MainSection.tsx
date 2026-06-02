@@ -142,7 +142,7 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
 
     const columns = ['userId', 'role', 'timestamp', 'tokens_consumed', 'cost'];
     const friendlyHeaders = ['User ID', 'Role', 'Timestamp', 'Tokens Consumed', 'Cost (USD)'];
-    const filename = `role_token_consumption_${user?.role || 'export'}_${new Date().toISOString().slice(0, 10)}`;
+    const filename = `role_token_consumption_${user?.role || 'export'}_${new Date().toLocaleString()}`;
 
     if (format === 'CSV') {
       const header = friendlyHeaders.join(',');
@@ -158,7 +158,7 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
       const totalTokens = filteredConsumptionData.reduce((sum, log) => sum + (log.tokens_consumed || 0), 0);
       const totalCost = filteredConsumptionData.reduce((sum, log) => sum + (log.cost || 0), 0);
       const totalRow = ['Total', '', '', String(totalTokens), `$${totalCost.toFixed(6)}`].join(',');
-      
+
       const csvContent = [header, ...rows, totalRow].join('\r\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -1396,9 +1396,8 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                             <th
                               key={col.id}
                               onClick={() => handleConsumptionHeaderClick(col.id)}
-                              className={`px-4 py-2.5 font-semibold cursor-pointer select-none hover:bg-black/5 dark:hover:bg-white/5 transition-colors duration-200 ${
-                                col.align === 'right' ? 'text-right' : 'text-left'
-                              }`}
+                              className={`px-4 py-2.5 font-semibold cursor-pointer select-none hover:bg-black/5 dark:hover:bg-white/5 transition-colors duration-200 ${col.align === 'right' ? 'text-right' : 'text-left'
+                                }`}
                             >
                               <div className={`flex items-center gap-1.5 ${col.align === 'right' ? 'justify-end' : 'justify-start'}`}>
                                 <span>{col.label}</span>
