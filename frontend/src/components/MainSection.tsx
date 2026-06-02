@@ -47,18 +47,184 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
   const [consumptionData, setConsumptionData] = React.useState<any[]>([]);
   const [consumptionLoading, setConsumptionLoading] = React.useState(false);
 
+  const [consumptionSearchQuery, setConsumptionSearchQuery] = React.useState('');
+  const [consumptionSortColumn, setConsumptionSortColumn] = React.useState<string | null>(null);
+  const [consumptionSortDirection, setConsumptionSortDirection] = React.useState<'asc' | 'desc' | null>(null);
+  const [consumptionCurrentPage, setConsumptionCurrentPage] = React.useState(1);
+
+  React.useEffect(() => {
+    setConsumptionCurrentPage(1);
+  }, [consumptionSearchQuery, consumptionSortColumn, consumptionSortDirection]);
+
   const fetchRoleTokenConsumption = async () => {
     if (!user) return;
     setConsumptionLoading(true);
     try {
       const response = await axios.get(`${apiBaseUrl}/role-token-consumption?role=${user.role}`);
       setConsumptionData(response.data);
+      setConsumptionSearchQuery('');
+      setConsumptionSortColumn(null);
+      setConsumptionSortDirection(null);
+      setConsumptionCurrentPage(1);
       setIsConsumptionModalOpen(true);
     } catch (err) {
       console.error('Failed to fetch role token consumption logs:', err);
       alert('Failed to retrieve role token consumption logs.');
     } finally {
       setConsumptionLoading(false);
+    }
+  };
+
+  const handleConsumptionHeaderClick = (colName: string) => {
+    if (consumptionSortColumn !== colName) {
+      setConsumptionSortColumn(colName);
+      setConsumptionSortDirection('asc');
+    } else {
+      if (consumptionSortDirection === 'asc') {
+        setConsumptionSortDirection('desc');
+      } else {
+        setConsumptionSortDirection(null);
+        setConsumptionSortColumn(null);
+      }
+    }
+  };
+
+  const filteredConsumptionData = React.useMemo(() => {
+    let records = consumptionData;
+    if (consumptionSearchQuery.trim()) {
+      const query = consumptionSearchQuery.toLowerCase();
+      records = records.filter(row => {
+        return (
+          (row.userId && String(row.userId).toLowerCase().includes(query)) ||
+          (row.role && String(row.role).toLowerCase().includes(query)) ||
+          (row.timestamp && String(row.timestamp).toLowerCase().includes(query)) ||
+          (row.tokens_consumed !== undefined && String(row.tokens_consumed).toLowerCase().includes(query)) ||
+          (row.cost !== undefined && String(row.cost).toLowerCase().includes(query))
+        );
+      });
+    }
+
+    if (consumptionSortColumn && consumptionSortDirection) {
+      records = [...records].sort((a, b) => {
+        const valA = a[consumptionSortColumn];
+        const valB = b[consumptionSortColumn];
+
+        if (valA === valB) return 0;
+        if (valA === null || valA === undefined) return 1;
+        if (valB === null || valB === undefined) return -1;
+
+        const numA = Number(valA);
+        const numB = Number(valB);
+        if (!isNaN(numA) && !isNaN(numB)) {
+          return consumptionSortDirection === 'asc' ? numA - numB : numB - numA;
+        }
+
+        const strA = String(valA).toLowerCase();
+        const strB = String(valB).toLowerCase();
+        return consumptionSortDirection === 'asc'
+          ? strA.localeCompare(strB)
+          : strB.localeCompare(strA);
+      });
+    }
+
+    return records;
+  }, [consumptionData, consumptionSearchQuery, consumptionSortColumn, consumptionSortDirection]);
+
+  const consumptionTotalPages = Math.ceil(filteredConsumptionData.length / 10);
+
+  const paginatedConsumptionData = React.useMemo(() => {
+    const startIndex = (consumptionCurrentPage - 1) * 10;
+    return filteredConsumptionData.slice(startIndex, startIndex + 10);
+  }, [filteredConsumptionData, consumptionCurrentPage]);
+
+  const handleExportConsumption = (format: string) => {
+    if (filteredConsumptionData.length === 0) return;
+
+    const columns = ['userId', 'role', 'timestamp', 'tokens_consumed', 'cost'];
+    const friendlyHeaders = ['User ID', 'Role', 'Timestamp', 'Tokens Consumed', 'Cost (USD)'];
+    const filename = `role_token_consumption_${user?.role || 'export'}_${new Date().toISOString().slice(0, 10)}`;
+
+    if (format === 'CSV') {
+      const header = friendlyHeaders.join(',');
+      const rows = filteredConsumptionData.map(row =>
+        columns.map(col => {
+          let val = row[col] === null || row[col] === undefined ? '' : String(row[col]);
+          if (val.includes(',') || val.includes('"') || val.includes('\n') || val.includes('\r')) {
+            val = `"${val.replace(/"/g, '""')}"`;
+          }
+          return val;
+        }).join(',')
+      );
+      const totalTokens = filteredConsumptionData.reduce((sum, log) => sum + (log.tokens_consumed || 0), 0);
+      const totalCost = filteredConsumptionData.reduce((sum, log) => sum + (log.cost || 0), 0);
+      const totalRow = ['Total', '', '', String(totalTokens), `$${totalCost.toFixed(6)}`].join(',');
+      
+      const csvContent = [header, ...rows, totalRow].join('\r\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `${filename}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else if (format === 'XLS') {
+      const headerHtml = `<tr>${friendlyHeaders.map(col => `<th style="background-color: #A31D1D; color: white; border: 1px solid #ddd; padding: 8px;">${col}</th>`).join('')}</tr>`;
+      const rowsHtml = filteredConsumptionData.map(row =>
+        `<tr>${columns.map(col => {
+          const val = row[col] === null || row[col] === undefined ? '' : String(row[col]);
+          return `<td style="border: 1px solid #ddd; padding: 8px; font-family: monospace;">${val}</td>`;
+        }).join('')}</tr>`
+      ).join('\r\n');
+
+      const totalTokens = filteredConsumptionData.reduce((sum, log) => sum + (log.tokens_consumed || 0), 0);
+      const totalCost = filteredConsumptionData.reduce((sum, log) => sum + (log.cost || 0), 0);
+      const totalRowHtml = `
+        <tr style="font-weight: bold; background-color: #f2f2f2;">
+          <td colspan="3" style="border: 1px solid #ddd; padding: 8px;">Total</td>
+          <td style="border: 1px solid #ddd; padding: 8px; font-family: monospace; text-align: right;">${totalTokens.toLocaleString()}</td>
+          <td style="border: 1px solid #ddd; padding: 8px; font-family: monospace; text-align: right; color: green;">$${totalCost.toFixed(6)}</td>
+        </tr>
+      `;
+
+      const tableHtml = `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+        <head>
+          <!--[if gte mso 9]>
+          <xml>
+            <x:ExcelWorkbook>
+              <x:ExcelWorksheets>
+                <x:ExcelWorksheet>
+                  <x:Name>Token Consumption</x:Name>
+                  <x:WorksheetOptions>
+                    <x:DisplayGridlines/>
+                  </x:WorksheetOptions>
+                </x:ExcelWorksheet>
+              </x:ExcelWorksheets>
+            </x:ExcelWorkbook>
+          </xml>
+          <![endif]-->
+          <meta http-equiv="content-type" content="text/plain; charset=UTF-8"/>
+        </head>
+        <body>
+          <table style="border-collapse: collapse; border: 1px solid #ddd;">
+            <thead>${headerHtml}</thead>
+            <tbody>${rowsHtml}${totalRowHtml}</tbody>
+          </table>
+        </body>
+        </html>
+      `;
+
+      const blob = new Blob([tableHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `${filename}.xls`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
   };
 
@@ -1148,7 +1314,7 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
       {
         isConsumptionModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className={`w-full max-w-2xl rounded-2xl p-6 shadow-2xl relative border ${isDark ? 'bg-axis-burgundy-dark text-white border-white/10' : 'bg-white text-gray-800 border-gray-200'
+            <div className={`w-full max-w-3xl rounded-2xl p-6 shadow-2xl relative border ${isDark ? 'bg-axis-burgundy-dark text-white border-white/10' : 'bg-white text-gray-800 border-gray-200'
               }`}>
               <button
                 onClick={() => setIsConsumptionModalOpen(false)}
@@ -1164,6 +1330,50 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                 Actual token usage details logged for the <strong>{user?.role}</strong> role.
               </p>
 
+              {/* Controls Row for Consumption Logs */}
+              {!consumptionLoading && consumptionData.length > 0 && (
+                <div className="flex flex-col sm:flex-row gap-3 items-center justify-between mb-4">
+                  {/* Search Bar */}
+                  <div className="relative flex-1 w-full max-w-sm">
+                    <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-white/40' : 'text-gray-400'}`} />
+                    <input
+                      type="text"
+                      placeholder="Search logs..."
+                      value={consumptionSearchQuery}
+                      onChange={(e) => setConsumptionSearchQuery(e.target.value)}
+                      className={`w-full pl-9 pr-4 py-2 text-sm rounded-xl focus:outline-none focus:ring-2 transition-all ${isDark
+                        ? 'bg-white/10 border border-white/10 text-white placeholder-white/30 focus:ring-axis-red/30'
+                        : 'bg-white border border-gray-200 text-gray-700 placeholder-gray-400 focus:ring-axis-burgundy/20'
+                        }`}
+                    />
+                  </div>
+
+                  {/* Export Options */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-white/50' : 'text-gray-500'}`}>
+                      Export:
+                    </span>
+                    <select
+                      onChange={(e) => {
+                        const format = e.target.value;
+                        if (format) {
+                          handleExportConsumption(format);
+                          e.target.value = ""; // Reset selection
+                        }
+                      }}
+                      className={`px-3 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
+                        ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
+                        : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'
+                        }`}
+                    >
+                      <option value="" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>Select format...</option>
+                      <option value="CSV" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>CSV</option>
+                      <option value="XLS" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>Excel (XLS)</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
               <div className={`rounded-xl overflow-hidden border max-h-[300px] overflow-y-auto ${isDark ? 'border-white/10 bg-black/20' : 'border-gray-200 bg-white'
                 }`}>
                 {consumptionLoading ? (
@@ -1174,26 +1384,60 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                   <table className="w-full text-xs text-left">
                     <thead className={`uppercase border-b ${isDark ? 'bg-white/5 border-white/10 text-white/50' : 'bg-gray-50 border-gray-200 text-gray-500'}`}>
                       <tr>
-                        <th className="px-4 py-2">User ID</th>
-                        <th className="px-4 py-2">Role</th>
-                        <th className="px-4 py-2">Timestamp</th>
-                        <th className="px-4 py-2 text-right">Tokens Consumed</th>
-                        <th className="px-4 py-2 text-right">Cost (USD)</th>
+                        {[
+                          { id: 'userId', label: 'User ID', align: 'left' },
+                          { id: 'role', label: 'Role', align: 'left' },
+                          { id: 'timestamp', label: 'Timestamp', align: 'left' },
+                          { id: 'tokens_consumed', label: 'Tokens Consumed', align: 'right' },
+                          { id: 'cost', label: 'Cost (USD)', align: 'right' },
+                        ].map((col) => {
+                          const isSorted = consumptionSortColumn === col.id;
+                          return (
+                            <th
+                              key={col.id}
+                              onClick={() => handleConsumptionHeaderClick(col.id)}
+                              className={`px-4 py-2.5 font-semibold cursor-pointer select-none hover:bg-black/5 dark:hover:bg-white/5 transition-colors duration-200 ${
+                                col.align === 'right' ? 'text-right' : 'text-left'
+                              }`}
+                            >
+                              <div className={`flex items-center gap-1.5 ${col.align === 'right' ? 'justify-end' : 'justify-start'}`}>
+                                <span>{col.label}</span>
+                                {isSorted ? (
+                                  consumptionSortDirection === 'asc' ? (
+                                    <ArrowUp className="w-3.5 h-3.5 text-axis-red" />
+                                  ) : (
+                                    <ArrowDown className="w-3.5 h-3.5 text-axis-red" />
+                                  )
+                                ) : (
+                                  <ArrowUpDown className="w-3.5 h-3.5 opacity-30 hover:opacity-100 transition-opacity" />
+                                )}
+                              </div>
+                            </th>
+                          );
+                        })}
                       </tr>
                     </thead>
                     <tbody className={`divide-y ${isDark ? 'divide-white/10 text-gray-200' : 'divide-gray-150 text-gray-700'}`}>
-                      {consumptionData.map((log, idx) => (
-                        <tr key={idx} className="hover:bg-black/5">
-                          <td className="px-4 py-2.5 font-mono">{log.userId}</td>
-                          <td className="px-4 py-2.5">{log.role}</td>
-                          <td className="px-4 py-2.5 font-mono">{log.timestamp}</td>
-                          <td className="px-4 py-2.5 font-mono text-right">{log.tokens_consumed.toLocaleString()}</td>
-                          <td className="px-4 py-2.5 font-mono text-right text-emerald-500">${log.cost.toFixed(6)}</td>
+                      {paginatedConsumptionData.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-8 text-center italic opacity-50">
+                            No matching logs found
+                          </td>
                         </tr>
-                      ))}
-                      {consumptionData.length > 0 && (() => {
-                        const totalTokens = consumptionData.reduce((sum, log) => sum + (log.tokens_consumed || 0), 0);
-                        const totalCost = consumptionData.reduce((sum, log) => sum + (log.cost || 0), 0);
+                      ) : (
+                        paginatedConsumptionData.map((log, idx) => (
+                          <tr key={idx} className="hover:bg-black/5">
+                            <td className="px-4 py-2.5 font-mono">{log.userId}</td>
+                            <td className="px-4 py-2.5">{log.role}</td>
+                            <td className="px-4 py-2.5 font-mono">{log.timestamp}</td>
+                            <td className="px-4 py-2.5 font-mono text-right">{log.tokens_consumed.toLocaleString()}</td>
+                            <td className="px-4 py-2.5 font-mono text-right text-emerald-500">${log.cost.toFixed(6)}</td>
+                          </tr>
+                        ))
+                      )}
+                      {filteredConsumptionData.length > 0 && (() => {
+                        const totalTokens = filteredConsumptionData.reduce((sum, log) => sum + (log.tokens_consumed || 0), 0);
+                        const totalCost = filteredConsumptionData.reduce((sum, log) => sum + (log.cost || 0), 0);
                         return (
                           <tr className={`font-bold border-t-2 ${isDark ? 'bg-white/5 border-white/20' : 'bg-gray-100 border-gray-300'}`}>
                             <td className="px-4 py-3" colSpan={3}>Total</td>
@@ -1206,6 +1450,46 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                   </table>
                 )}
               </div>
+
+              {/* Pagination controls for Consumption Logs */}
+              {!consumptionLoading && consumptionTotalPages > 1 && (
+                <div className={`px-4 py-3 mt-3 rounded-xl border text-xs font-semibold flex flex-col sm:flex-row items-center justify-between gap-4 ${isDark ? 'bg-black/10 border-white/10 text-white/60' : 'bg-gray-50 border-gray-100 text-gray-500'}`}>
+                  <span>
+                    Showing {(consumptionCurrentPage - 1) * 10 + 1} to{' '}
+                    {Math.min(consumptionCurrentPage * 10, filteredConsumptionData.length)} of{' '}
+                    <span className={`font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{filteredConsumptionData.length}</span>{' '}
+                    matching logs (Total: {consumptionData.length})
+                  </span>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setConsumptionCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={consumptionCurrentPage === 1}
+                      className={`p-1.5 rounded-lg border transition-all disabled:opacity-30 disabled:cursor-not-allowed ${isDark
+                        ? 'border-white/10 bg-white/5 hover:bg-white/10 text-white'
+                        : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
+                        }`}
+                      title="Previous Page"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="min-w-[60px] text-center">
+                      Page {consumptionCurrentPage} of {consumptionTotalPages}
+                    </span>
+                    <button
+                      onClick={() => setConsumptionCurrentPage(prev => Math.min(prev + 1, consumptionTotalPages))}
+                      disabled={consumptionCurrentPage === consumptionTotalPages}
+                      className={`p-1.5 rounded-lg border transition-all disabled:opacity-30 disabled:cursor-not-allowed ${isDark
+                        ? 'border-white/10 bg-white/5 hover:bg-white/10 text-white'
+                        : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
+                        }`}
+                      title="Next Page"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )
