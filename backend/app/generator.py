@@ -90,11 +90,13 @@ class CodeGenerator:
                - PL/SQL: Generate a SINGLE raw SQL SELECT statement using DECLARE/BEGIN/END blocks, cursors, or procedural PL/SQL syntax.
                - MongoDB NoSQL: Generate MongoDB Python query code (e.g. `db.collection.aggregate([...])`).
             2. ALWAYS use the exact case-sensitive table names and column names as defined in the schemas above to ensure proper query execution.
-            3. The generated code MUST project, select, and output the columns specified in the 'Columns' list (i.e. {", ".join(request.columns)}).
+            3. The generated code MUST project, select, and output all the columns specified in the 'Columns' list (i.e. {", ".join(request.columns)}).
                HOWEVER, you must also analyze the 'Logic' to smartly determine if the user query requires any computed, derived, or aggregated columns (e.g. sums, counts, averages, date/month extractions, conditional buckets, etc.).
                If computed columns are needed:
                - Smartly define and include these computed columns in the output projection/selection of the query/code.
-               - If the logic requires aggregation (like grouping by month and channel to get sum of amount and count), select/group by the grouping columns (including any derived grouping keys like month) and calculate the aggregated measures (like total amount and count of transactions). In this aggregated case, you may omit base columns that cannot be included in an aggregated query (like a unique ID), but make sure to include all columns from the 'Columns' list that are relevant to the aggregation.
+               - To prevent Column Resolution Errors, you MUST ensure that every column selected in your final select statement is present in the final joined DataFrame.
+               - Specifically, if columns like `merchant_name`, `channel`, or `transaction_type` are in the 'Columns' list, you MUST perform a detail-level/row-level join of the `transactionsInfo` table directly to the main DataFrame: e.g. `final_df = customer_loans.join(transactionsInfo, "customer_id", "left")` (do NOT just join an aggregated subquery that omits these columns).
+               - When joining detail tables like `transactionsInfo` at the row level, calculate customer-level aggregates (such as counting UPI transactions per customer) using window functions (e.g., PySpark `Window.partitionBy("customer_id")` or SQL `OVER (PARTITION BY customer_id)`) rather than `groupBy`, so that the detail rows are not collapsed and all requested transaction-level columns can be projected.
                - Give all computed columns clear, descriptive names.
             4. Provide realistic simulated aggregate Data Quality (DQ) insights for the entire result set.
             5. Return the response as a JSON object with exactly these keys: 
@@ -118,7 +120,8 @@ class CodeGenerator:
                 response = await self.client.chat.completions.create(
                     model="gpt-4o",
                     messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"}
+                    response_format={"type": "json_object"},
+                    temperature=0.0
                 )
                 data = parse_llm_json(response.choices[0].message.content)
                 prompt_tokens = response.usage.prompt_tokens if response.usage else 0
@@ -142,7 +145,8 @@ class CodeGenerator:
                 payload = {
                     "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {
-                        "responseMimeType": "application/json"
+                        "responseMimeType": "application/json",
+                        "temperature": 0.0
                     }
                 }
                 async with httpx.AsyncClient() as client:
@@ -168,6 +172,7 @@ class CodeGenerator:
                 llm = ChatMistralAI(
                     model="mistral-large-latest",
                     api_key=mistral_key,
+                    temperature=0.0
                 )
                 llm_json = llm.bind(response_format={"type": "json_object"})
                 response = await llm_json.ainvoke(prompt)
@@ -205,7 +210,8 @@ class CodeGenerator:
                 response = await together_client.chat.completions.create(
                     model=together_model,
                     messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"}
+                    response_format={"type": "json_object"},
+                    temperature=0.0
                 )
                 data = parse_llm_json(response.choices[0].message.content)
                 prompt_tokens = response.usage.prompt_tokens if response.usage else 0
@@ -311,7 +317,8 @@ class CodeGenerator:
                 response = await self.client.chat.completions.create(
                     model="gpt-4o",
                     messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"}
+                    response_format={"type": "json_object"},
+                    temperature=0.0
                 )
                 data = parse_llm_json(response.choices[0].message.content)
                 python_code = data.get("python_code", "")
@@ -334,7 +341,8 @@ class CodeGenerator:
                 payload = {
                     "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {
-                        "responseMimeType": "application/json"
+                        "responseMimeType": "application/json",
+                        "temperature": 0.0
                     }
                 }
                 async with httpx.AsyncClient() as client:
@@ -349,7 +357,7 @@ class CodeGenerator:
                 mistral_key = os.getenv("MISTRALAI_API_KEY")
                 if mistral_key:
                     from langchain_mistralai import ChatMistralAI
-                    llm = ChatMistralAI(model="mistral-large-latest", api_key=mistral_key)
+                    llm = ChatMistralAI(model="mistral-large-latest", api_key=mistral_key, temperature=0.0)
                     llm_json = llm.bind(response_format={"type": "json_object"})
                     response = await llm_json.ainvoke(prompt)
                     data = parse_llm_json(response.content)
@@ -369,7 +377,8 @@ class CodeGenerator:
                         response = await together_client.chat.completions.create(
                             model=together_model,
                             messages=[{"role": "user", "content": prompt}],
-                            response_format={"type": "json_object"}
+                            response_format={"type": "json_object"},
+                            temperature=0.0
                         )
                         data = parse_llm_json(response.choices[0].message.content)
                         python_code = data.get("python_code", "")
@@ -379,7 +388,8 @@ class CodeGenerator:
                 response = await self.client.chat.completions.create(
                     model="gpt-4o",
                     messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"}
+                    response_format={"type": "json_object"},
+                    temperature=0.0
                 )
                 data = parse_llm_json(response.choices[0].message.content)
                 python_code = data.get("python_code", "")
