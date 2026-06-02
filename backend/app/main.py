@@ -334,7 +334,7 @@ def clean_procedural_sql(code: str) -> str:
                     vars_dict[var_name] = var_val
                     
         # Check if there is a cursor definition in declare_section
-        cursor_match = re.search(r'\bCURSOR\s+(\w+)\s*(?:\((.*?)\))?\s*IS\s*(SELECT.*?)(?:;|$)', declare_section, re.DOTALL | re.IGNORECASE)
+        cursor_match = re.search(r'\bCURSOR\s+(\w+)\s*(?:\((.*?)\))?\s*IS\s*((?:WITH|SELECT).*?)(?:;|$)', declare_section, re.DOTALL | re.IGNORECASE)
         if cursor_match:
             cursor_name = cursor_match.group(1)
             params_str = cursor_match.group(2)
@@ -378,7 +378,7 @@ def clean_procedural_sql(code: str) -> str:
             cleaned_sql = re.sub(rf'\b{re.escape(var_name)}\b', var_val, cleaned_sql)
             
         # If there's a SELECT statement inside, extract it
-        select_match = re.search(r'(SELECT.*)', cleaned_sql, re.DOTALL | re.IGNORECASE)
+        select_match = re.search(r'((?:WITH|SELECT)\b.*)', cleaned_sql, re.DOTALL | re.IGNORECASE)
         if select_match:
             cleaned_sql = select_match.group(1).strip()
             
