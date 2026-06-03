@@ -17,9 +17,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, apiBaseUrl }) => 
   const [showHelper, setShowHelper] = React.useState(false);
 
   const demoAccounts = [
-    { role: 'Data Engineering', username: 'de_user_1', password: 'depass1', desc: 'Access core Data Engineering tables' },
-    { role: 'Healthcare', username: 'hc_user_1', password: 'hcpass1', desc: 'Access patients and clinical data' },
-    { role: 'Media', username: 'media_user_1', password: 'mediapass1', desc: 'Access subscriber and viewing logs' },
+    { role: 'Data Engineering', username: 'de_user_1', password: 'de_pass_1', desc: 'Access core Data Engineering tables' },
+    { role: 'Healthcare', username: 'hc_user_1', password: 'hc_pass_1', desc: 'Access patients and clinical data' },
+    { role: 'Media', username: 'media_user_1', password: 'media_pass_1', desc: 'Access subscriber and viewing logs' },
   ];
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -178,7 +178,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, apiBaseUrl }) => 
           </form>
 
           {/* Quick Access Helper */}
-          <div className="mt-6 pt-6 border-t border-dashed border-gray-200/50 dark:border-white/10">
+          <div className="hidden mt-6 pt-6 border-t border-dashed border-gray-200/50 dark:border-white/10">
             <button
               type="button"
               onClick={() => setShowHelper(!showHelper)}
