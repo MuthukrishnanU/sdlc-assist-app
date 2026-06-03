@@ -464,7 +464,8 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
         role: user?.role,
         input_fields: formData,
         column_dq_insights: simulationData?.column_dq_insights,
-        dq_insights: simulationData?.dataframe
+        dq_insights: simulationData?.dataframe,
+        timestamp: new Date().toLocaleString()
       });
       if (response.data.status === 'success') {
         alert(

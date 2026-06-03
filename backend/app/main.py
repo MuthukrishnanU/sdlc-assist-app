@@ -1854,7 +1854,7 @@ async def push_to_github(request: GitHubPushRequest):
                     push_log = {
                         "userId": request.userId or "unknown",
                         "role": request.role or "unknown",
-                        "timestamp": datetime.now(),
+                        "timestamp": request.timestamp or datetime.now(),
                         "inputFields": request.input_fields or {},
                         "DQ Insights": request.column_dq_insights or {},
                         "codeOutput": request.generated_code or "",

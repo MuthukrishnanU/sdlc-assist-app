@@ -83,6 +83,7 @@ class GitHubPushRequest(BaseModel):
     input_fields: Optional[dict] = None
     column_dq_insights: Optional[dict] = None
     dq_insights: Optional[Union[dict, List[dict]]] = None
+    timestamp: Optional[str] = None
 
 class LoginRequest(BaseModel):
     userId: str
