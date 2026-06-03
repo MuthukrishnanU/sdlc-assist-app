@@ -1531,7 +1531,11 @@ def get_or_create_quota(db, role: str) -> dict:
     if not role:
         role = "Data Engineering"
     quota = db["modelQuotas"].find_one({"role": role})
+    
+    from datetime import datetime, timedelta
+    
     if not quota:
+        default_reset_date = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
         quota = {
             "role": role,
             "limits": {
@@ -1543,9 +1547,48 @@ def get_or_create_quota(db, role: str) -> dict:
                 "kimi": { "total_tokens": 1000000, "used_tokens": 0 }
             },
             "remaining_balance_usd": 15.00,
-            "reset_date": "2026-07-01T00:00:00Z"
+            "reset_date": default_reset_date
         }
         db["modelQuotas"].insert_one(quota)
+    else:
+        # Check if reset_date is reached
+        reset_date_str = quota.get("reset_date")
+        if reset_date_str:
+            try:
+                # Parse naive ISO format safely
+                clean_str = reset_date_str.replace("Z", "").split(".")[0]
+                reset_date = datetime.fromisoformat(clean_str)
+                now = datetime.now()
+                
+                if now >= reset_date:
+                    # Reset the usage stats
+                    for k in quota.get("limits", {}):
+                        quota["limits"][k]["used_tokens"] = 0
+                    quota["remaining_balance_usd"] = 15.00
+                    
+                    # Calculate next reset date (1st day of next month)
+                    if now.month == 12:
+                        next_reset = datetime(now.year + 1, 1, 1, 0, 0, 0)
+                    else:
+                        next_reset = datetime(now.year, now.month + 1, 1, 0, 0, 0)
+                    
+                    quota["reset_date"] = next_reset.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    
+                    # Update database
+                    db["modelQuotas"].update_one(
+                        {"role": role},
+                        {
+                            "$set": {
+                                "limits": quota["limits"],
+                                "remaining_balance_usd": quota["remaining_balance_usd"],
+                                "reset_date": quota["reset_date"]
+                            }
+                        }
+                    )
+                    print(f"[INFO] Quotas for role '{role}' successfully reset because reset_date ({reset_date_str}) was reached.")
+            except Exception as e:
+                print(f"[ERROR] Failed to evaluate/reset quota: {e}")
+                
     return quota
 
 @app.get("/quota")
