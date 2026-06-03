@@ -1227,6 +1227,10 @@ async def simulate_data(request: SimulationRequest):
 
         # 5. Clean result DataFrame and apply sample data size limit
         if result_df is not None and not result_df.empty:
+            # Deduplicate by customer_id if present to keep unique customer-level records
+            if 'customer_id' in result_df.columns:
+                result_df = result_df.drop_duplicates(subset=['customer_id'])
+            
             # Drop private prefix helper columns
             for col in list(result_df.columns):
                 if col.startswith('_'):
