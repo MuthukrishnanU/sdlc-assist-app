@@ -402,4 +402,30 @@ class CodeGenerator:
             print(f"Error generating simulation code: {e}")
             return ""
 
+    async def translate_pyspark_to_sql(self, code_str: str, tables: list) -> str:
+        prompt = f"""
+        You are an expert Data Engineer.
+        Your task is to translate the following PySpark DataFrame API code into a single standard SQL SELECT query compatible with DuckDB.
+        
+        PySpark Code:
+        {code_str}
+        
+        Tables Involved: {", ".join(tables)}
+        
+        Instructions:
+        1. Translate all PySpark logic (joins, filters, projections, aggregations, custom columns, deduplication) into a clean, syntactically correct SQL query.
+        2. Specifically, when joining a detail table (like transactionsInfo), calculate customer-level aggregates (like counting UPI transactions) and ensure that duplicate rows are resolved correctly.
+        3. Do NOT include any markdown code block formatting (e.g. ```sql). Just return the raw SQL query as a plain string.
+        """
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"Error in translate_pyspark_to_sql: {e}")
+            return ""
+
 generator = CodeGenerator()

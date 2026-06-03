@@ -945,6 +945,9 @@ async def simulate_data(request: SimulationRequest):
                     if pyspark_exec_failed or extracted_df is None:
                         try:
                             sql_from_pyspark = _pyspark_code_to_sql(code_str, list(dfs.keys()))
+                            if not sql_from_pyspark:
+                                sql_from_pyspark = await generator.translate_pyspark_to_sql(code_str, list(dfs.keys()))
+                            
                             if sql_from_pyspark:
                                 con_spark_fallback = duckdb.connect()
                                 for t_name_fb, df_fb in dfs.items():
@@ -1130,7 +1133,7 @@ async def simulate_data(request: SimulationRequest):
                         tables=request.tables,
                         columns=request.columns,
                         logic=request.logic or "",
-                        model=request.model or "gpt-4o"
+                        model="gpt-4o"
                     )
                     if py_code:
                         import numpy as np
@@ -1652,7 +1655,7 @@ async def get_role_token_consumption(role: str):
         client_db = MongoClient(MONGODB_URI)
         db = client_db["bankingSdlcDB"]
         
-        cursor = db["roleTokenConsumption"].find({"role": role}).sort("timestamp", -1).limit(100)
+        cursor = db["roleTokenConsumption"].find({"role": role}).sort("timestamp", -1)
         logs = []
         for doc in cursor:
             t = doc.get("timestamp")
