@@ -1710,12 +1710,20 @@ async def generate_code(request: CodeGenerationRequest):
             rates = PRICING.get(model_key, {"input": 0.000005, "output": 0.000015})
             cost = (p_tokens * rates["input"]) + (c_tokens * rates["output"])
             
+            # Retrieve current limits and update in Python to prevent dot notation splitting on 'gemini-3.5-flash'
+            limits = quota.get("limits", {})
+            if model_key not in limits:
+                limits[model_key] = {"total_tokens": 1000000, "used_tokens": 0}
+            limits[model_key]["used_tokens"] = limits[model_key].get("used_tokens", 0) + total_tokens
+            
             # Update database
             db["modelQuotas"].update_one(
                 {"role": role},
                 {
+                    "$set": {
+                        "limits": limits
+                    },
                     "$inc": {
-                        f"limits.{model_key}.used_tokens": total_tokens,
                         "remaining_balance_usd": -cost
                     }
                 }
