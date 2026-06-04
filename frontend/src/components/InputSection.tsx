@@ -62,7 +62,7 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
     return Array.from(new Set(formData.tables.flatMap(table => dbMetadata[table] || [])));
   }, [formData.tables, dbMetadata]);
   const sampleSizes = [100, 250, 500, 1000];
-  const models = ['gpt-4o', 'gemini-3.5-flash', 'mistral', 'llama', 'qwen', 'kimi'];
+  const models = ['gpt-4o', 'gemini-3.5-flash', 'mistral', 'llama', /*'qwen',*/ 'kimi'];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

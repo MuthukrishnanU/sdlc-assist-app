@@ -1523,7 +1523,7 @@ PRICING = {
     "gemini-3.5-flash": {"input": 0.000000075, "output": 0.0000003},
     "mistral": {"input": 0.000002, "output": 0.000006},
     "llama": {"input": 0.0000007, "output": 0.0000007},
-    "qwen": {"input": 0.0000003, "output": 0.0000003},
+    #"qwen": {"input": 0.0000003, "output": 0.0000003},
     "kimi": {"input": 0.0000007, "output": 0.0000007}
 }
 
@@ -1543,7 +1543,7 @@ def get_or_create_quota(db, role: str) -> dict:
                 "gemini-3.5-flash": { "total_tokens": 10000000, "used_tokens": 0 },
                 "mistral": { "total_tokens": 1000000, "used_tokens": 0 },
                 "llama": { "total_tokens": 1000000, "used_tokens": 0 },
-                "qwen": { "total_tokens": 1000000, "used_tokens": 0 },
+                #"qwen": { "total_tokens": 1000000, "used_tokens": 0 },
                 "kimi": { "total_tokens": 1000000, "used_tokens": 0 }
             },
             "remaining_balance_usd": 15.00,

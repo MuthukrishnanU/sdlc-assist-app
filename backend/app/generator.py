@@ -16,6 +16,53 @@ def parse_llm_json(content: str) -> dict:
             content = content[start_idx:end_idx+1]
     return json.loads(content)
 
+def sanitize_dq_insights(dq_in: dict) -> dict:
+    if not isinstance(dq_in, dict):
+        dq_in = {}
+    
+    cleaned = {}
+    
+    # Integer fields
+    for key in ["row_count", "null_values", "duplicate_rows", "distinct_values", "empty_strings"]:
+        val = dq_in.get(key, 0)
+        if isinstance(val, dict):
+            cleaned[key] = sum(v for v in val.values() if isinstance(v, (int, float)))
+        elif isinstance(val, list):
+            cleaned[key] = sum(v for v in val if isinstance(v, (int, float)))
+        elif isinstance(val, (int, float)):
+            cleaned[key] = int(val)
+        elif isinstance(val, str):
+            try:
+                cleaned[key] = int(float(val))
+            except ValueError:
+                cleaned[key] = 0
+        else:
+            cleaned[key] = 0
+            
+    # Float fields (minimum, maximum, average)
+    for key in ["minimum", "maximum", "average"]:
+        val = dq_in.get(key, None)
+        if val is None:
+            cleaned[key] = None
+        elif isinstance(val, dict):
+            numeric_vals = [v for v in val.values() if isinstance(v, (int, float))]
+            cleaned[key] = float(numeric_vals[0]) if numeric_vals else None
+        elif isinstance(val, list):
+            numeric_vals = [v for v in val if isinstance(v, (int, float))]
+            cleaned[key] = float(numeric_vals[0]) if numeric_vals else None
+        elif isinstance(val, (int, float)):
+            cleaned[key] = float(val)
+        elif isinstance(val, str):
+            try:
+                cleaned[key] = float(val)
+            except ValueError:
+                cleaned[key] = None
+        else:
+            cleaned[key] = None
+            
+    return cleaned
+
+
 class CodeGenerator:
     def __init__(self):
         self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -224,7 +271,7 @@ class CodeGenerator:
             
             return CodeGenerationResponse(
                 generated_code=data["generated_code"],
-                dq_insights=DQInsights(**data["dq_insights"]),
+                dq_insights=DQInsights(**sanitize_dq_insights(data.get("dq_insights", {}))),
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens
             )
