@@ -1522,14 +1522,14 @@ const MainSection: React.FC<MainSectionProps> = ({ code, insights, isLoading, ap
                   const used = limit?.used_tokens ?? 0;
                   const total = limit?.total_tokens ?? 1000000;
                   const remaining = Math.max(0, total - used);
-                  const percent = Math.min(100, Math.round((used / total) * 100));
+                  const percent = Math.min(100, (used / total) * 100);
 
                   return (
                     <div key={modelName} className="space-y-1.5 text-left">
                       <div className="flex justify-between text-xs font-semibold">
                         <span className="font-mono">{modelName}</span>
                         <span className={isDark ? 'text-white/70' : 'text-gray-600'}>
-                          {used.toLocaleString()} / {total.toLocaleString()} tokens ({percent}%)
+                          {used.toLocaleString()} / {total.toLocaleString()} tokens ({percent.toFixed(2)}%)
                         </span>
                       </div>
                       {/* Progress Bar */}
