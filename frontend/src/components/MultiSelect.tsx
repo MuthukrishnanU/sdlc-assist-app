@@ -9,6 +9,7 @@ interface MultiSelectProps {
   onChange: (selected: string[]) => void;
   placeholder?: string;
   icon?: React.ReactNode;
+  actionLink?: React.ReactNode;
 }
 
 const MultiSelect: React.FC<MultiSelectProps> = ({
@@ -17,7 +18,8 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
   selected,
   onChange,
   placeholder = "Select options...",
-  icon
+  icon,
+  actionLink
 }) => {
   const { isDark } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
@@ -60,9 +62,12 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
 
   return (
     <div className="space-y-2" ref={containerRef}>
-      <label className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-2 ${isDark ? 'text-white/50' : 'text-gray-500'}`}>
-        {icon} {label}
-      </label>
+      <div className="flex justify-between items-center">
+        <label className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-2 ${isDark ? 'text-white/50' : 'text-gray-500'}`}>
+          {icon} {label}
+        </label>
+        {actionLink}
+      </div>
       
       <div className="relative">
         <div

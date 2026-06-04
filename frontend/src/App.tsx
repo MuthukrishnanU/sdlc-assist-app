@@ -4,6 +4,7 @@ import { ThemeProvider } from './ThemeContext';
 import InputSection from './components/InputSection';
 import MainSection from './components/MainSection';
 import LoginPage from './components/LoginPage';
+import CreateTablePage from './components/CreateTablePage';
 
 const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? 'http://localhost:8000'
@@ -16,6 +17,7 @@ function App() {
   const [lastFormData, setLastFormData] = React.useState<any | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [generationTokens, setGenerationTokens] = React.useState<{ prompt_tokens: number, completion_tokens: number } | null>(null);
+  const [currentPage, setCurrentPage] = React.useState<'main' | 'create-table'>('main');
 
   React.useEffect(() => {
     const storedUser = localStorage.getItem('sdlc_user');
@@ -41,6 +43,7 @@ function App() {
     setDqInsights(null);
     setGenerationTokens(null);
     setLastFormData(null);
+    setCurrentPage('main');
   };
 
   const handleGenerate = async (formData: any) => {
@@ -80,24 +83,33 @@ function App() {
 
   return (
     <ThemeProvider>
-      <div className="flex h-screen overflow-hidden">
-        <InputSection
-          onGenerate={handleGenerate}
-          isLoading={loading}
-          apiBaseUrl={API_BASE_URL}
+      {currentPage === 'create-table' ? (
+        <CreateTablePage
           user={user}
-          onLogout={handleLogout}
-        />
-        <MainSection
-          code={generatedCode}
-          insights={dqInsights}
-          isLoading={loading}
+          onBack={() => setCurrentPage('main')}
           apiBaseUrl={API_BASE_URL}
-          formData={lastFormData}
-          generationTokens={generationTokens}
-          user={user}
         />
-      </div>
+      ) : (
+        <div className="flex h-screen overflow-hidden">
+          <InputSection
+            onGenerate={handleGenerate}
+            isLoading={loading}
+            apiBaseUrl={API_BASE_URL}
+            user={user}
+            onLogout={handleLogout}
+            onCreateNewTable={() => setCurrentPage('create-table')}
+          />
+          <MainSection
+            code={generatedCode}
+            insights={dqInsights}
+            isLoading={loading}
+            apiBaseUrl={API_BASE_URL}
+            formData={lastFormData}
+            generationTokens={generationTokens}
+            user={user}
+          />
+        </div>
+      )}
     </ThemeProvider>
   );
 }

@@ -11,9 +11,10 @@ interface InputSectionProps {
   apiBaseUrl: string;
   user: { userId: string; role: string };
   onLogout: () => void;
+  onCreateNewTable: () => void;
 }
 
-const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiBaseUrl, user, onLogout }) => {
+const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiBaseUrl, user, onLogout, onCreateNewTable }) => {
   const { isDark, toggleTheme } = useTheme();
   const [dbMetadata, setDbMetadata] = React.useState<Record<string, string[]>>({});
 
@@ -116,9 +117,9 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
               }`}
           >
             {isDark ? (
-              <Moon className="w-3 h-3 text-white" />
+              <Moon className="w-3.5 h-3.5 text-white" />
             ) : (
-              <Sun className="w-3 h-3 text-amber-500" />
+              <Sun className="w-3.5 h-3.5 text-amber-500" />
             )}
           </div>
         </button>
@@ -174,6 +175,16 @@ const InputSection: React.FC<InputSectionProps> = ({ onGenerate, isLoading, apiB
           }}
           placeholder="Choose tables..."
           icon={<Database className="w-3 h-3" />}
+          actionLink={
+            <button
+              type="button"
+              onClick={onCreateNewTable}
+              className={`text-xs font-bold underline tracking-wider transition-colors hover:opacity-80 focus:outline-none ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'
+                }`}
+            >
+              (+) Metastore
+            </button>
+          }
         />
 
         {/* Select Columns */}

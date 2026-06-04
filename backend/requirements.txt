@@ -11,3 +11,4 @@ langchain>=0.1.0
 langchain-mistralai>=0.1.0
 mock-firestore>=0.11.0
 fugue>=0.8.0
+resend>=0.8.0
