@@ -11,3 +11,7 @@ langchain>=0.1.0
 langchain-mistralai>=0.1.0
 mock-firestore>=0.11.0
 fugue>=0.8.0
+resend>=0.8.0
+python-multipart>=0.0.9
+openpyxl>=3.1.5
+Faker>=21.5.0

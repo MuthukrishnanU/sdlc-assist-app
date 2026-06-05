@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from .schemas import CodeGenerationRequest, CodeGenerationResponse, SimulationRequest, SimulationResponse, GitHubPushRequest, LoginRequest, LoginResponse
 from .generator import generator
@@ -43,6 +43,17 @@ try:
     from duckdb.experimental.spark.sql.readwriter import DataFrameReader
     DataFrameReader.table = lambda self, tableName: self.session.table(tableName)
     
+    def patched_format(self, formatName):
+        self._format = formatName
+        return self
+        
+    def patched_load(self, path=None, *args, **kwargs):
+        if not path or not isinstance(path, str):
+            return self.session.table("test_user_table")
+        col_name = os.path.basename(path).replace("path_to_", "")
+        col_name = re.sub(r'[^a-zA-Z0-9_]', '', col_name)
+        return self.session.table(col_name)
+        
     def patched_csv(self, path, *args, **kwargs):
         clean_path = str(path).replace("\\", "/")
         return self.session.sql(f"SELECT * FROM read_csv_auto('{clean_path}')")
@@ -55,6 +66,8 @@ try:
         clean_path = str(path).replace("\\", "/")
         return self.session.sql(f"SELECT * FROM read_parquet('{clean_path}')")
         
+    #DataFrameReader.format = patched_format
+    #DataFrameReader.load = patched_load
     DataFrameReader.csv = patched_csv
     DataFrameReader.json = patched_json
     DataFrameReader.parquet = patched_parquet
@@ -170,20 +183,16 @@ async def get_metadata(role: str = None):
         client = MongoClient(MONGODB_URI)
         db = client["bankingSdlcDB"]
         
-        # Determine allowed collections based on role
-        if role == "Data Engineering":
-            allowed = ["customerDetails", "accountBalances", "loanInfo", "transactionsInfo", "dataQualityLogs"]
-        elif role == "Healthcare":
-            allowed = ["patientsInfo", "medicalRecords", "doctorDetails", "hospitalBeds", "healthcareDqLogs"]
-        elif role == "Media":
-            allowed = ["subscriberProfiles", "contentLibrary", "watchHistory", "billingTransactions", "mediaDqLogs"]
+        # Determine allowed collections dynamically based on role from tableStatus
+        query = {"approvalStatus": "approved"}
+        if role:
+            query["tableRole"] = role
         else:
-            # If no role or unrecognized role is provided, default to listing everything (except system. and users/metadata store)
-            allowed = [
-                "customerDetails", "accountBalances", "loanInfo", "transactionsInfo", "dataQualityLogs",
-                "patientsInfo", "medicalRecords", "doctorDetails", "hospitalBeds", "healthcareDqLogs",
-                "subscriberProfiles", "contentLibrary", "watchHistory", "billingTransactions", "mediaDqLogs"
-            ]
+            # If no role, list all approved tables except system tables
+            query["tableRole"] = {"$ne": "system"}
+            
+        cursor = db["tableStatus"].find(query)
+        allowed = [doc["tableName"] for doc in cursor]
             
         metadata = {}
         for col_name in allowed:
@@ -1934,6 +1943,393 @@ async def push_to_github(request: GitHubPushRequest):
                 "code_file_path": code_path,
                 "code_html_url": code_html_url
             }
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =====================================================================
+# NEW DYNAMIC TABLE CREATION AND APPROVAL ENDPOINTS
+# =====================================================================
+
+def send_approval_email(tableName: str, tableSchema: str, createdUserId: str, tableRole: str, createdTimestamp: str):
+    import resend
+    resend_key = os.getenv("RESEND_API_KEY")
+    if not resend_key:
+        print("[WARNING] RESEND_API_KEY is not set in environment variables. Email will not be sent.")
+        return
+        
+    resend.api_key = resend_key
+    
+    admin_email = ""
+    try:
+        from pymongo import MongoClient
+        mongo_uri = os.getenv("MONGODB_URI")
+        if mongo_uri:
+            client = MongoClient(mongo_uri)
+            db = client["bankingSdlcDB"]
+            admin_user = db["sdlcUsers"].find_one({"userId": "admin"})
+            if admin_user and "email" in admin_user and admin_user["email"]:
+                admin_email = admin_user["email"]
+    except Exception as mongo_err:
+        print(f"[WARNING] Failed to fetch admin email from MongoDB: {mongo_err}. Falling back to default email.")
+        
+    try:
+        r = resend.Emails.send({
+            "from": "onboarding@resend.dev",
+            "to": admin_email,
+            "subject": f"Approval Request - {tableName}",
+            "html": f"""<strong>Hi Admin,</strong><br/><br/>
+A new table creation request is pending approval.<br/><br/>
+<strong>Table Details:</strong><br/>
+<ul>
+  <li><strong>Table Name:</strong> {tableName}</li>
+  <li><strong>Table Schema:</strong> {tableSchema}</li>
+  <li><strong>Created By:</strong> {createdUserId}</li>
+  <li><strong>User Role:</strong> {tableRole}</li>
+  <li><strong>Created Timestamp:</strong> {createdTimestamp}</li>
+</ul>
+<br/>
+Please login to the Admin panel to approve or reject this request.
+"""
+        })
+        print(f"Resend email dispatch succeeded: {r}")
+    except Exception as e:
+        print(f"[ERROR] Failed to send email via Resend: {e}")
+
+def clean_column_name(name: str) -> str:
+    name_str = str(name).strip()
+    name_with_underscores = re.sub(r'\s+', '_', name_str)
+    cleaned = re.sub(r'[^a-zA-Z0-9_]', '_', name_with_underscores)
+    cleaned = re.sub(r'_+', '_', cleaned)
+    cleaned = cleaned.strip('_')
+    return cleaned
+
+def generate_dummy_data(columns_schema: list, tableName: str) -> list:
+    import random
+    from faker import Faker
+    from datetime import datetime, timedelta
+    import pandas as pd
+    fake = Faker()
+    
+    records = []
+    pk_col, pk_type, pk_examples = columns_schema[0]
+    
+    for i in range(1500):
+        record = {}
+        if "int" in pk_type.lower():
+            pk_val = 10000 + i
+        elif any(t in pk_type.lower() for t in ("float", "double", "decimal", "number", "numeric", "real")):
+            pk_val = float(10000 + i)
+        else:
+            prefix = "".join([c for c in tableName if c.isalnum()])[:3].upper()
+            if not prefix:
+                prefix = "TBL"
+            pk_val = f"{prefix}-{10000 + i}"
+            
+        record[pk_col] = pk_val
+        
+        for item in columns_schema[1:]:
+            col_name, data_type, examples_list = item
+            col_lower = col_name.lower()
+            type_lower = data_type.lower()
+            
+            if examples_list:
+                chosen_val = random.choice(examples_list)
+                try:
+                    if "int" in type_lower:
+                        val = int(float(chosen_val))
+                    elif any(t in type_lower for t in ("float", "double", "decimal", "number", "numeric", "real")):
+                        val = float(chosen_val)
+                    elif any(t in type_lower for t in ("date", "time", "timestamp")):
+                        try:
+                            val = pd.to_datetime(chosen_val).to_pydatetime()
+                        except Exception:
+                            val = datetime.now() - timedelta(days=random.randint(1, 1000), seconds=random.randint(0, 86400))
+                    elif "bool" in type_lower or "boolean" in type_lower:
+                        val = True if str(chosen_val).lower() in ('true', '1', 'yes', 'y') else False
+                    else:
+                        val = chosen_val
+                except Exception:
+                    val = chosen_val
+            else:
+                # Fallback to generating data on our own
+                if "int" in type_lower:
+                    if "age" in col_lower:
+                        val = random.randint(18, 90)
+                    elif "year" in col_lower:
+                        val = random.randint(1990, 2026)
+                    elif "rating" in col_lower:
+                        val = random.randint(1, 5)
+                    else:
+                        val = random.randint(1, 10000)
+                elif any(t in type_lower for t in ("float", "double", "decimal", "number", "numeric", "real")):
+                    if any(k in col_lower for k in ("fee", "amount", "cost", "charge", "rate")):
+                        val = round(random.uniform(10.0, 5000.0), 2)
+                    elif "rating" in col_lower:
+                        val = round(random.uniform(1.0, 5.0), 1)
+                    else:
+                        val = round(random.uniform(1.0, 1000.0), 2)
+                elif any(t in type_lower for t in ("date", "time", "timestamp")):
+                    val = datetime.now() - timedelta(days=random.randint(1, 1000), seconds=random.randint(0, 86400))
+                elif "bool" in type_lower or "boolean" in type_lower:
+                    val = random.choice([True, False])
+                else:
+                    if "email" in col_lower:
+                        val = fake.ascii_free_email()
+                    elif "phone" in col_lower or "mobile" in col_lower:
+                        val = fake.numerify("##########")
+                    elif "name" in col_lower:
+                        if "first" in col_lower:
+                            val = fake.first_name()
+                        elif "last" in col_lower:
+                            val = fake.last_name()
+                        else:
+                            val = fake.name()
+                    elif "gender" in col_lower:
+                        val = random.choice(["Male", "Female", "Other"])
+                    elif "address" in col_lower:
+                        val = fake.address().replace('\n', ', ')
+                    elif "city" in col_lower:
+                        val = fake.city()
+                    elif "country" in col_lower:
+                        val = fake.country()
+                    elif "company" in col_lower:
+                        val = fake.company()
+                    elif "status" in col_lower:
+                        val = random.choice(["Active", "Inactive", "Pending", "Completed"])
+                    else:
+                        val = fake.word().capitalize()
+                    
+            record[col_name] = val
+        records.append(record)
+    return records
+
+@app.post("/create-table")
+async def create_table(
+    background_tasks: BackgroundTasks,
+    tableName: str = Form(...),
+    tableSchema: str = Form(...),
+    userId: str = Form(...),
+    role: str = Form(...),
+    file: UploadFile = File(...)
+):
+    try:
+        if not MONGODB_URI:
+            raise HTTPException(status_code=500, detail="MONGODB_URI is not set in environment variables")
+        client = MongoClient(MONGODB_URI)
+        db = client["bankingSdlcDB"]
+        
+        cleaned_tableName = clean_column_name(tableName)
+        if not cleaned_tableName:
+            raise HTTPException(status_code=400, detail="Invalid table name provided.")
+            
+        existing_table = db["tableStatus"].find_one({"tableName": cleaned_tableName})
+        if existing_table:
+            raise HTTPException(status_code=400, detail=f"Table '{cleaned_tableName}' already exists or is pending approval.")
+            
+        contents = await file.read()
+        try:
+            df = pd.read_excel(io.BytesIO(contents), header=None)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to parse Excel file: {str(e)}")
+            
+        df = df.dropna(how='all')
+        if df.empty:
+            raise HTTPException(status_code=400, detail="The uploaded file has no data entered.")
+            
+        if df.shape[1] != 3:
+            raise HTTPException(status_code=400, detail="Ensure the uploaded file has only 3 columns of data.")
+            
+        # Check first row for header keywords
+        first_col_val = str(df.iloc[0, 0]).lower()
+        second_col_val = str(df.iloc[0, 1]).lower()
+        
+        if any(kw in first_col_val for kw in ("name", "column", "field")) and any(kw in second_col_val for kw in ("type", "datatype")):
+            df = df.iloc[1:]
+            
+        # Drop rows where col name or type is empty (keep rows where examples column is empty)
+        df = df.dropna(subset=[df.columns[0], df.columns[1]])
+        if df.empty:
+            raise HTTPException(status_code=400, detail="The uploaded file has no valid column mappings.")
+            
+        columns_schema = []
+        for index, row in df.iterrows():
+            raw_col_name = str(row.iloc[0]).strip()
+            raw_data_type = str(row.iloc[1]).strip()
+            # Parse third column containing examples
+            raw_examples = str(row.iloc[2]).strip() if pd.notnull(row.iloc[2]) else ""
+            if raw_examples.lower() in ("nan", "none", "null"):
+                raw_examples = ""
+            examples_list = [ex.strip() for ex in raw_examples.split(",") if ex.strip()] if raw_examples else []
+            
+            cleaned_col = clean_column_name(raw_col_name)
+            if not cleaned_col:
+                continue
+            columns_schema.append((cleaned_col, raw_data_type, examples_list))
+            
+        if not columns_schema:
+            raise HTTPException(status_code=400, detail="No valid column definitions found in the file.")
+            
+        records = generate_dummy_data(columns_schema, cleaned_tableName)
+        
+        db[cleaned_tableName].delete_many({})
+        db[cleaned_tableName].insert_many(records)
+        
+        pk_col = columns_schema[0][0]
+        db[cleaned_tableName].create_index(pk_col, unique=True)
+        
+        fields_metadata = []
+        for index, (col_name, data_type, examples_list) in enumerate(columns_schema):
+            friendly_name = col_name.replace("_", " ").title()
+            desc = f"Stores the {friendly_name.lower()} details"
+            
+            dt_lower = data_type.lower()
+            norm_type = "string"
+            if "int" in dt_lower:
+                norm_type = "integer"
+            elif any(t in dt_lower for t in ("float", "double", "decimal", "number", "numeric", "real")):
+                norm_type = "double"
+            elif any(t in dt_lower for t in ("date", "time", "timestamp")):
+                norm_type = "date"
+            elif "bool" in dt_lower or "boolean" in dt_lower:
+                norm_type = "boolean"
+                
+            role_field = "measure" if norm_type in ("integer", "double") else "dimension"
+            if index == 0:
+                role_field = "identifier"
+                
+            classification = "PII" if any(k in col_name.lower() for k in ["email", "phone", "name", "address"]) else "public"
+            
+            lineage = {
+                "source_tables": [cleaned_tableName],
+                "source_columns": [col_name],
+                "transformation": f"Direct data ingest copy from source {cleaned_tableName}.{col_name}"
+            }
+            
+            fields_metadata.append({
+                "field_name": col_name,
+                "friendly_name": friendly_name,
+                "description": desc,
+                "data_type": norm_type,
+                "role": role_field,
+                "classification": classification,
+                "lineage": lineage
+            })
+            
+        semantic_doc = {
+            "collection_name": cleaned_tableName,
+            "friendly_name": cleaned_tableName.replace("_", " ").title(),
+            "description": f"Custom user table for storing {cleaned_tableName} records.",
+            "primary_key": pk_col,
+            "relations": [],
+            "fields": fields_metadata,
+            "business_name": cleaned_tableName.replace("_", " ").title()
+        }
+        
+        db["semanticMetaStore"].delete_many({"collection_name": cleaned_tableName})
+        db["semanticMetaStore"].insert_one(semantic_doc)
+        
+        from datetime import timezone, timedelta
+        ist_tz = timezone(timedelta(hours=5, minutes=30))
+        created_str = datetime.now(ist_tz).strftime("%d-%m-%Y-%H-%M-%S") + " IST"
+        
+        status_doc = {
+            "tableName": cleaned_tableName,
+            "approvalStatus": "pending",
+            "createdUserId": userId,
+            "createdTimestamp": created_str,
+            "approvalTimestamp": "",
+            "tableRole": role,
+            "tableSchema": tableSchema
+        }
+        db["tableStatus"].insert_one(status_doc)
+        
+        background_tasks.add_task(send_approval_email, cleaned_tableName, tableSchema, userId, role, created_str)
+        
+        return {"status": "success", "message": "table creation accomplished and approval email sent to admin", "tableName": cleaned_tableName}
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/pending-approvals")
+async def get_pending_approvals():
+    try:
+        if not MONGODB_URI:
+            raise HTTPException(status_code=500, detail="MONGODB_URI is not set in environment variables")
+        client = MongoClient(MONGODB_URI)
+        db = client["bankingSdlcDB"]
+        
+        cursor = db["tableStatus"].find({"approvalStatus": "pending"})
+        pending = []
+        for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            pending.append(doc)
+        return pending
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/approve-table/{tableName}")
+async def approve_table(tableName: str):
+    try:
+        if not MONGODB_URI:
+            raise HTTPException(status_code=500, detail="MONGODB_URI is not set in environment variables")
+        client = MongoClient(MONGODB_URI)
+        db = client["bankingSdlcDB"]
+        
+        from datetime import timezone, timedelta
+        ist_tz = timezone(timedelta(hours=5, minutes=30))
+        approval_str = datetime.now(ist_tz).strftime("%d-%m-%Y-%H-%M-%S") + " IST"
+        
+        res = db["tableStatus"].update_one(
+            {"tableName": tableName, "approvalStatus": "pending"},
+            {"$set": {"approvalStatus": "approved", "approvalTimestamp": approval_str}}
+        )
+        if res.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Pending table request not found")
+            
+        return {"status": "success", "message": f"Table '{tableName}' approved successfully."}
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/reject-table/{tableName}")
+async def reject_table(tableName: str):
+    try:
+        if not MONGODB_URI:
+            raise HTTPException(status_code=500, detail="MONGODB_URI is not set in environment variables")
+        client = MongoClient(MONGODB_URI)
+        db = client["bankingSdlcDB"]
+        
+        res = db["tableStatus"].update_one(
+            {"tableName": tableName, "approvalStatus": "pending"},
+            {"$set": {"approvalStatus": "rejected"}}
+        )
+        if res.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Pending table request not found")
+            
+        return {"status": "success", "message": f"Table '{tableName}' rejected successfully."}
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/semantic-layer/{tableName}")
+async def get_semantic_layer(tableName: str):
+    try:
+        if not MONGODB_URI:
+            raise HTTPException(status_code=500, detail="MONGODB_URI is not set in environment variables")
+        client = MongoClient(MONGODB_URI)
+        db = client["bankingSdlcDB"]
+        
+        doc = db["semanticMetaStore"].find_one({"collection_name": tableName})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Semantic layer metadata not found")
+            
+        doc["_id"] = str(doc["_id"])
+        return doc
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e
