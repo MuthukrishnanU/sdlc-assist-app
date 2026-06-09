@@ -1679,15 +1679,27 @@ const MainSection: React.FC<MainSectionProps> = ({
                     </div>
                   ) : flowExplanation ? (
                     <ol className="list-decimal pl-5 space-y-2 text-xs font-medium">
-                      {flowExplanation
-                        .split('.')
+                      {(flowExplanation.includes(':')) ? flowExplanation
+                        .split(':')
                         .map(s => s.trim())
                         .filter(Boolean)
                         .map((sentence, idx) => (
                           <li key={idx} className="leading-relaxed">
                             {sentence}.
                           </li>
-                        ))}
+                        ))
+                        : (
+                          flowExplanation
+                            .split('.')
+                            .map(s => s.trim())
+                            .filter(Boolean)
+                            .map((sentence, idx) => (
+                              <li key={idx} className="leading-relaxed">
+                                {sentence}.
+                              </li>
+                            ))
+                        )
+                      }
                     </ol>
                   ) : (
                     <div className={`italic text-xs ${isDark ? 'text-white/30' : 'text-gray-400'}`}>
