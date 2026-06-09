@@ -540,42 +540,42 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout, apiBase
                   </p>
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-2xl border dark:border-white/10">
+                <div className="overflow-x-auto border dark:border-white/10">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
                       <tr className={`border-b dark:border-white/10 font-bold uppercase tracking-wider ${isDark ? 'bg-white/5 text-white/60' : 'bg-gray-50 text-gray-500'}`}>
-                        <th className="px-5 py-3.5">User ID</th>
-                        <th className="px-5 py-3.5">Role</th>
-                        <th className="px-5 py-3.5">Timestamp</th>
-                        <th className="px-5 py-3.5">Pod Name</th>
-                        <th className="px-5 py-3.5">Project Name</th>
-                        <th className="px-5 py-3.5 text-right">Actions</th>
+                        <th className="px-5 py-3.5 border border-black">User ID</th>
+                        <th className="px-5 py-3.5 border border-black">Role</th>
+                        <th className="px-5 py-3.5 border border-black">Timestamp</th>
+                        <th className="px-5 py-3.5 border border-black">Pod Name</th>
+                        <th className="px-5 py-3.5 border border-black">Project Name</th>
+                        <th className="px-5 py-3.5 text-center border border-black">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y dark:divide-white/10">
                       {pendingPushes.map((push) => (
                         <tr key={push._id} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                          <td className="px-5 py-4 font-mono font-bold opacity-80">{push.userId}</td>
-                          <td className="px-5 py-4">
+                          <td className="px-5 py-4 border border-black font-mono font-bold opacity-80">{push.userId}</td>
+                          <td className="px-5 py-4 border border-black">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wide uppercase ${isDark ? 'bg-white/10 text-axis-cream' : 'bg-axis-burgundy/5 text-axis-burgundy'}`}>
                               {push.role}
                             </span>
                           </td>
-                          <td className="px-5 py-4 opacity-60">{push.timestamp}</td>
-                          <td className="px-5 py-4 opacity-80">{push.podName}</td>
-                          <td className="px-5 py-4 opacity-80">{push.projectName}</td>
-                          <td className="px-5 py-4 text-right">
+                          <td className="px-5 py-4 border border-black opacity-60">{push.timestamp}</td>
+                          <td className="px-5 py-4 border border-black opacity-80">{push.podName}</td>
+                          <td className="px-5 py-4 border border-black opacity-80">{push.projectName}</td>
+                          <td className="px-5 py-4 border border-black text-right">
                             <div className="flex items-center justify-end gap-2">
                               <button
                                 onClick={() => setViewingCodeRequest(push)}
-                                className="p-1.5 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors flex items-center gap-1 font-bold text-[10px] uppercase border dark:border-white/10 shadow-sm"
+                                className="p-1.5 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors flex items-center gap-1 font-bold text-[10px] uppercase border border-black shadow-sm"
                                 title="View Code Output"
                               >
                                 <Code className="w-3.5 h-3.5" /> View Code
                               </button>
                               <button
                                 onClick={() => setViewingTableRequest(push)}
-                                className="p-1.5 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors flex items-center gap-1 font-bold text-[10px] uppercase border dark:border-white/10 shadow-sm"
+                                className="p-1.5 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors flex items-center gap-1 font-bold text-[10px] uppercase border border-black shadow-sm"
                                 title="View Output Table"
                               >
                                 <Table className="w-3.5 h-3.5" /> View Table
