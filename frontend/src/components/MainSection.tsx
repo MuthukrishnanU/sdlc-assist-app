@@ -517,6 +517,8 @@ const MainSection: React.FC<MainSectionProps> = ({
         if (response.data.code_html_url) {
           window.open(response.data.code_html_url, '_blank');
         }
+      } else if (response.data.status === 'pending_approval') {
+        alert(response.data.message || 'Your request to push code and simulated table to GitHub has been submitted for admin approval.');
       }
     } catch (err: any) {
       console.error('Failed to push to GitHub:', err);

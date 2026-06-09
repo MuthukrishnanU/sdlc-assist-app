@@ -297,3 +297,17 @@ Along/Below the "Row 1, Row 2 etc" mention "Visualizing (subset_size) of the (to
 Also, along/near the axis which shows values, mention the parameter selected by user for which values are being displayed.
 
 (2) If possible, at the top-left of Visualization section (above the chart and next to "Visualization Output" heading), display a download icon (with tool tip "Download as SVG") to download the chart/graph in .svg format only.
+
+(3) I want to revamp the github push functionality to admin based approval mechanism.
+Currently in /github/push route, the generated code and output table are getting pushed to github directly.
+Along with these files being pushed to github, many details are being stored at "pushAllDetails" table/collection.
+
+Now I want these files to be stored in a temporary table/collection say "pushAllDetailsTemp" in MongoDB along with all the other details (as per pushAllDetails table/collection).
+The generated code file and simulated output table file should only be pushed to github only after getting admin approval.
+Also, an email will be sent to admin informing about the new pull request.
+Also, only after getting admin approval - the other details will be saved in "pushAllDetails" table/collection.
+So, the admin dashboard will have a new button "Approve Github Push" (along with "Approve Table Creation" and "Approve User Registration" buttons).
+On click of "Approve Github Push" - A table must display all the entries in "pushAllDetailsTemp" table/collection (with columns depicting userId, role and button to "Approve").
+If admin click on "Approve" button - Save the entire entry in "pushAllDetails" and remove the entry from "pushAllDetailsTemp" collection and display an alert with appropriate message.
+Please confirm if this is possible (we need to store large code & output table files in MongoDB collection).
+Provide me with an implementation plan.

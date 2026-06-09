@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database, UserCheck, ArrowLeft, LogOut, Eye, Check, X, Shield, Clock, Sun, Moon } from 'lucide-react';
+import { Database, UserCheck, ArrowLeft, LogOut, Eye, Check, X, Shield, Clock, Sun, Moon, GitPullRequest, Code, Table } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import axios from 'axios';
 
@@ -22,17 +22,34 @@ interface PendingUserApproval {
   role: string;
 }
 
+interface PendingPushApproval {
+  _id: string;
+  userId: string;
+  role: string;
+  timestamp: string;
+  podName: string;
+  projectName: string;
+  codeOutput?: string;
+  outputTableData?: any[];
+}
+
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout, apiBaseUrl }) => {
   const { isDark, toggleTheme } = useTheme();
 
-  // Active view: 'menu' | 'tables' | 'users'
-  const [activeView, setActiveView] = React.useState<'menu' | 'tables' | 'users'>('menu');
+  // Active view: 'menu' | 'tables' | 'users' | 'pushes'
+  const [activeView, setActiveView] = React.useState<'menu' | 'tables' | 'users' | 'pushes'>('menu');
 
   // Pending lists
   const [pendingTables, setPendingTables] = React.useState<PendingTableApproval[]>([]);
   const [loadingTables, setLoadingTables] = React.useState(false);
   const [pendingUsers, setPendingUsers] = React.useState<PendingUserApproval[]>([]);
   const [loadingUsers, setLoadingUsers] = React.useState(false);
+  const [pendingPushes, setPendingPushes] = React.useState<PendingPushApproval[]>([]);
+  const [loadingPushes, setLoadingPushes] = React.useState(false);
+
+  // View modals for push requests
+  const [viewingCodeRequest, setViewingCodeRequest] = React.useState<PendingPushApproval | null>(null);
+  const [viewingTableRequest, setViewingTableRequest] = React.useState<PendingPushApproval | null>(null);
 
   // Semantic layer modal
   const [semanticModalOpen, setSemanticModalOpen] = React.useState(false);
@@ -66,13 +83,28 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout, apiBase
     }
   }, [apiBaseUrl]);
 
+  // Fetch pending github pushes
+  const fetchPendingPushes = React.useCallback(async () => {
+    setLoadingPushes(true);
+    try {
+      const response = await axios.get(`${apiBaseUrl}/pending-github-pushes`);
+      setPendingPushes(response.data);
+    } catch (err) {
+      console.error('Failed to fetch pending github pushes:', err);
+    } finally {
+      setLoadingPushes(false);
+    }
+  }, [apiBaseUrl]);
+
   React.useEffect(() => {
     if (activeView === 'tables') {
       fetchPendingTables();
     } else if (activeView === 'users') {
       fetchPendingUsers();
+    } else if (activeView === 'pushes') {
+      fetchPendingPushes();
     }
-  }, [activeView, fetchPendingTables, fetchPendingUsers]);
+  }, [activeView, fetchPendingTables, fetchPendingUsers, fetchPendingPushes]);
 
   // Approve Table
   const handleApproveTable = async (tName: string) => {
@@ -152,6 +184,42 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout, apiBase
     }
   };
 
+  // Approve GitHub Push
+  const handleApprovePush = async (pushId: string) => {
+    if (!window.confirm(`Are you sure you want to approve this GitHub push request?`)) return;
+    try {
+      const response = await axios.post(`${apiBaseUrl}/approve-github-push/${pushId}`);
+      if (response.data.status === 'success') {
+        alert(response.data.message);
+        setPendingPushes(prev => prev.filter(p => p._id !== pushId));
+        if (response.data.data_html_url) {
+          window.open(response.data.data_html_url, '_blank');
+        }
+        if (response.data.code_html_url) {
+          window.open(response.data.code_html_url, '_blank');
+        }
+      }
+    } catch (err: any) {
+      console.error('GitHub push approval failed:', err);
+      alert(err.response?.data?.detail || 'Failed to approve GitHub push.');
+    }
+  };
+
+  // Reject GitHub Push
+  const handleRejectPush = async (pushId: string) => {
+    if (!window.confirm(`Are you sure you want to reject this GitHub push request?`)) return;
+    try {
+      const response = await axios.post(`${apiBaseUrl}/reject-github-push/${pushId}`);
+      if (response.data.status === 'success') {
+        alert(response.data.message);
+        setPendingPushes(prev => prev.filter(p => p._id !== pushId));
+      }
+    } catch (err: any) {
+      console.error('GitHub push rejection failed:', err);
+      alert(err.response?.data?.detail || 'Failed to reject GitHub push.');
+    }
+  };
+
   return (
     <div className={`flex flex-col min-h-screen w-screen transition-colors duration-400 p-6 ${isDark ? 'bg-axis-burgundy-deep text-white' : 'bg-axis-gray text-gray-800'}`}>
 
@@ -227,21 +295,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout, apiBase
         {/* Central Content Area */}
         <div className="flex-grow flex items-center justify-center py-6">
           {activeView === 'menu' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-3xl">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-5xl">
 
               {/* Approve Table Creation Button Card */}
               <button
                 onClick={() => setActiveView('tables')}
-                className={`flex flex-col items-center justify-center text-center p-8 rounded-3xl border transition-all duration-300 hover:scale-[1.03] group shadow-xl ${isDark
+                className={`flex flex-col items-center justify-center text-center p-6 rounded-3xl border transition-all duration-300 hover:scale-[1.03] group shadow-xl ${isDark
                   ? 'bg-axis-burgundy-dark/40 hover:bg-axis-burgundy-dark/60 border-white/10 hover:border-axis-red/30'
                   : 'bg-white hover:bg-gray-50 border-gray-200 hover:border-axis-burgundy/20'
                   }`}
               >
-                <div className={`p-5 rounded-2xl mb-4 transition-transform group-hover:scale-110 ${isDark ? 'bg-white/5 text-axis-cream' : 'bg-axis-burgundy/5 text-axis-burgundy'}`}>
-                  <Database className="w-12 h-12 text-axis-red" />
+                <div className={`p-4.5 rounded-2xl mb-4 transition-transform group-hover:scale-110 ${isDark ? 'bg-white/5 text-axis-cream' : 'bg-axis-burgundy/5 text-axis-burgundy'}`}>
+                  <Database className="w-10 h-10 text-axis-red" />
                 </div>
-                <h3 className="text-lg font-bold">Approve Table Creation Into Metastore</h3>
-                <p className="text-xs opacity-60 mt-2 max-w-xs leading-relaxed">
+                <h3 className="text-base font-bold">Approve Table Creation</h3>
+                <p className="text-[11px] opacity-60 mt-2 max-w-xs leading-relaxed">
                   Review schema details, generated mock records, and authorize pending database creations requested by roles.
                 </p>
               </button>
@@ -249,17 +317,34 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout, apiBase
               {/* Approve User Registration Button Card */}
               <button
                 onClick={() => setActiveView('users')}
-                className={`flex flex-col items-center justify-center text-center p-8 rounded-3xl border transition-all duration-300 hover:scale-[1.03] group shadow-xl ${isDark
+                className={`flex flex-col items-center justify-center text-center p-6 rounded-3xl border transition-all duration-300 hover:scale-[1.03] group shadow-xl ${isDark
                   ? 'bg-axis-burgundy-dark/40 hover:bg-axis-burgundy-dark/60 border-white/10 hover:border-axis-red/30'
                   : 'bg-white hover:bg-gray-50 border-gray-200 hover:border-axis-burgundy/20'
                   }`}
               >
-                <div className={`p-5 rounded-2xl mb-4 transition-transform group-hover:scale-110 ${isDark ? 'bg-white/5 text-axis-cream' : 'bg-axis-burgundy/5 text-axis-burgundy'}`}>
-                  <UserCheck className="w-12 h-12 text-axis-red" />
+                <div className={`p-4.5 rounded-2xl mb-4 transition-transform group-hover:scale-110 ${isDark ? 'bg-white/5 text-axis-cream' : 'bg-axis-burgundy/5 text-axis-burgundy'}`}>
+                  <UserCheck className="w-10 h-10 text-axis-red" />
                 </div>
-                <h3 className="text-lg font-bold">Approve User Registration</h3>
-                <p className="text-xs opacity-60 mt-2 max-w-xs leading-relaxed">
+                <h3 className="text-base font-bold">Approve User Registration</h3>
+                <p className="text-[11px] opacity-60 mt-2 max-w-xs leading-relaxed">
                   Review new registration applications, assign designated domains, and authenticate new access credentials.
+                </p>
+              </button>
+
+              {/* Approve Github Push Button Card */}
+              <button
+                onClick={() => setActiveView('pushes')}
+                className={`flex flex-col items-center justify-center text-center p-6 rounded-3xl border transition-all duration-300 hover:scale-[1.03] group shadow-xl ${isDark
+                  ? 'bg-axis-burgundy-dark/40 hover:bg-axis-burgundy-dark/60 border-white/10 hover:border-axis-red/30'
+                  : 'bg-white hover:bg-gray-50 border-gray-200 hover:border-axis-burgundy/20'
+                  }`}
+              >
+                <div className={`p-4.5 rounded-2xl mb-4 transition-transform group-hover:scale-110 ${isDark ? 'bg-white/5 text-axis-cream' : 'bg-axis-burgundy/5 text-axis-burgundy'}`}>
+                  <GitPullRequest className="w-10 h-10 text-axis-red" />
+                </div>
+                <h3 className="text-base font-bold">Approve GitHub Push</h3>
+                <p className="text-[11px] opacity-60 mt-2 max-w-xs leading-relaxed">
+                  Review generated queries, simulated database records, and authorize code integrations to the GitHub repository.
                 </p>
               </button>
 
@@ -423,6 +508,100 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout, apiBase
               )}
             </div>
           )}
+
+          {/* Sub-view: Pending GitHub Pushes */}
+          {activeView === 'pushes' && (
+            <div className={`w-full p-6 rounded-3xl shadow-2xl border glass space-y-4`}>
+              <div className="flex items-center justify-between pb-3 border-b border-gray-200/50 dark:border-white/10">
+                <h2 className="text-base font-extrabold flex items-center gap-2">
+                  <GitPullRequest className="w-5 h-5 text-axis-red" /> Pending GitHub Pushes
+                </h2>
+                <span className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-full ${pendingPushes.length > 0
+                  ? (isDark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-800')
+                  : (isDark ? 'bg-white/10 text-white/50' : 'bg-gray-100 text-gray-500')
+                  }`}>
+                  {pendingPushes.length} pending
+                </span>
+              </div>
+
+              {loadingPushes ? (
+                <div className="flex flex-col items-center justify-center py-16 space-y-2">
+                  <div className="w-8 h-8 border-4 border-axis-red/20 border-t-axis-red rounded-full animate-spin" />
+                  <span className="text-xs opacity-60 font-bold">Fetching pending github pushes...</span>
+                </div>
+              ) : pendingPushes.length === 0 ? (
+                <div className="text-center py-16 space-y-2">
+                  <div className={`mx-auto p-3.5 rounded-full w-fit ${isDark ? 'bg-white/5 text-white/30' : 'bg-gray-50 text-gray-400'}`}>
+                    <Clock className="w-6 h-6" />
+                  </div>
+                  <div className="text-sm font-bold opacity-60">No Pending GitHub Pushes</div>
+                  <p className="text-[10px] opacity-40 max-w-xs mx-auto">
+                    All push requests have been successfully processed or verified.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-2xl border dark:border-white/10">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className={`border-b dark:border-white/10 font-bold uppercase tracking-wider ${isDark ? 'bg-white/5 text-white/60' : 'bg-gray-50 text-gray-500'}`}>
+                        <th className="px-5 py-3.5">User ID</th>
+                        <th className="px-5 py-3.5">Role</th>
+                        <th className="px-5 py-3.5">Timestamp</th>
+                        <th className="px-5 py-3.5">Pod Name</th>
+                        <th className="px-5 py-3.5">Project Name</th>
+                        <th className="px-5 py-3.5 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y dark:divide-white/10">
+                      {pendingPushes.map((push) => (
+                        <tr key={push._id} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                          <td className="px-5 py-4 font-mono font-bold opacity-80">{push.userId}</td>
+                          <td className="px-5 py-4">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wide uppercase ${isDark ? 'bg-white/10 text-axis-cream' : 'bg-axis-burgundy/5 text-axis-burgundy'}`}>
+                              {push.role}
+                            </span>
+                          </td>
+                          <td className="px-5 py-4 opacity-60">{push.timestamp}</td>
+                          <td className="px-5 py-4 opacity-80">{push.podName}</td>
+                          <td className="px-5 py-4 opacity-80">{push.projectName}</td>
+                          <td className="px-5 py-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => setViewingCodeRequest(push)}
+                                className="p-1.5 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors flex items-center gap-1 font-bold text-[10px] uppercase border dark:border-white/10 shadow-sm"
+                                title="View Code Output"
+                              >
+                                <Code className="w-3.5 h-3.5" /> View Code
+                              </button>
+                              <button
+                                onClick={() => setViewingTableRequest(push)}
+                                className="p-1.5 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors flex items-center gap-1 font-bold text-[10px] uppercase border dark:border-white/10 shadow-sm"
+                                title="View Output Table"
+                              >
+                                <Table className="w-3.5 h-3.5" /> View Table
+                              </button>
+                              <button
+                                onClick={() => handleApprovePush(push._id)}
+                                className="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 transition-colors flex items-center gap-1 font-bold text-[10px] uppercase border border-emerald-500/25"
+                              >
+                                <Check className="w-3.5 h-3.5" /> Approve
+                              </button>
+                              <button
+                                onClick={() => handleRejectPush(push._id)}
+                                className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-500 transition-colors flex items-center gap-1 font-bold text-[10px] uppercase border border-red-500/25"
+                              >
+                                <X className="w-3.5 h-3.5" /> Reject
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -534,6 +713,106 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout, apiBase
                 Failed to load details.
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Code Output Modal Popup */}
+      {viewingCodeRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className={`w-full max-w-3xl rounded-3xl p-6 shadow-2xl relative border ${isDark ? 'bg-axis-burgundy-dark text-white border-white/10' : 'bg-white text-gray-800 border-gray-200'}`}>
+            <button
+              type="button"
+              onClick={() => setViewingCodeRequest(null)}
+              className={`absolute top-4 right-4 p-1.5 rounded-lg hover:bg-black/10 transition-colors ${isDark ? 'text-white/60 hover:text-white' : 'text-gray-400 hover:text-gray-600'}`}
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className={`text-lg font-bold flex items-center gap-2 mb-1 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`}>
+              <Code className="w-5 h-5 text-axis-red" /> Generated Code Output
+            </h3>
+            <p className="text-sm opacity-60 mb-4 tracking-wider font-semibold">
+              Push request by: {viewingCodeRequest.userId} ({viewingCodeRequest.role})
+            </p>
+
+            <div className="max-h-[400px] overflow-y-auto border dark:border-white/10 rounded-xl custom-scrollbar">
+              <pre className={`p-4 font-mono text-xs overflow-x-auto whitespace-pre-wrap select-text ${isDark ? 'bg-black/20 text-axis-cream' : 'bg-gray-50 text-gray-800'}`}>
+                <code>{viewingCodeRequest.codeOutput}</code>
+              </pre>
+            </div>
+
+            <div className="flex justify-end pt-4">
+              <button
+                type="button"
+                onClick={() => setViewingCodeRequest(null)}
+                className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-axis-red hover:brightness-110 transition-all shadow-md"
+              >
+                Close View
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Output Table Modal Popup */}
+      {viewingTableRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className={`w-full max-w-5xl rounded-3xl p-6 shadow-2xl relative border ${isDark ? 'bg-axis-burgundy-dark text-white border-white/10' : 'bg-white text-gray-800 border-gray-200'} flex flex-col max-h-[85vh]`}>
+            <button
+              type="button"
+              onClick={() => setViewingTableRequest(null)}
+              className={`absolute top-4 right-4 p-1.5 rounded-lg hover:bg-black/10 transition-colors ${isDark ? 'text-white/60 hover:text-white' : 'text-gray-400 hover:text-gray-600'}`}
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className={`text-lg font-bold flex items-center gap-2 mb-1 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`}>
+              <Table className="w-5 h-5 text-axis-red" /> Simulated Output Table
+            </h3>
+            <p className="text-sm opacity-60 mb-4 tracking-wider font-semibold">
+              Push request by: {viewingTableRequest.userId} ({viewingTableRequest.role})
+            </p>
+
+            <div className="flex-grow overflow-auto border dark:border-white/10 rounded-xl custom-scrollbar max-h-[50vh]">
+              {(() => {
+                const records = viewingTableRequest.outputTableData || [];
+                if (records.length === 0) {
+                  return <div className="p-8 text-center text-xs opacity-50">No data records available in this push.</div>;
+                }
+                const columns = Object.keys(records[0]);
+                return (
+                  <table className="w-full text-left border-collapse text-[11px] min-w-max">
+                    <thead>
+                      <tr className={`border-b dark:border-white/10 font-bold uppercase tracking-wider sticky top-0 z-10 ${isDark ? 'bg-axis-burgundy-dark text-white/60' : 'bg-gray-100 text-gray-500'}`}>
+                        {columns.map((col) => (
+                          <th key={col} className="px-4 py-2.5 border dark:border-white/10">{col}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y dark:divide-white/10">
+                      {records.map((row, rIdx) => (
+                        <tr key={rIdx} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                          {columns.map((col) => (
+                            <td key={col} className="px-4 py-2 border dark:border-white/10 font-mono">{row[col] !== null && row[col] !== undefined ? String(row[col]) : ""}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                );
+              })()}
+            </div>
+
+            <div className="flex justify-end pt-4 shrink-0">
+              <button
+                type="button"
+                onClick={() => setViewingTableRequest(null)}
+                className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-axis-red hover:brightness-110 transition-all shadow-md"
+              >
+                Close View
+              </button>
+            </div>
           </div>
         </div>
       )}
