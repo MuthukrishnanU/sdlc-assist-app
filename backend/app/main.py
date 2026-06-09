@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from .schemas import CodeGenerationRequest, CodeGenerationResponse, SimulationRequest, SimulationResponse, GitHubPushRequest, LoginRequest, LoginResponse
+from .schemas import CodeGenerationRequest, CodeGenerationResponse, SimulationRequest, SimulationResponse, GitHubPushRequest, LoginRequest, LoginResponse, RegisterRequest, RegisterResponse
 from .generator import generator
 import uvicorn
 from datetime import datetime
@@ -176,22 +176,36 @@ async def root():
     return {"message": "SDLC Assist API is running"}
 
 @app.get("/metadata")
-async def get_metadata(role: str = None):
+async def get_metadata(role: str = None, domains: str = None):
     try:
         if not MONGODB_URI:
             raise HTTPException(status_code=500, detail="MONGODB_URI is not set in environment variables")
         client = MongoClient(MONGODB_URI)
         db = client["bankingSdlcDB"]
         
-        # Determine allowed collections dynamically based on role from tableStatus
-        query = {"approvalStatus": "approved"}
-        if role:
+        # Determine allowed collections dynamically based on role and domain from tableStatusNew
+        query = {"approvalStatus": "approved", "tableType": "sdlc"}
+        
+        if domains and role != "admin":
+            domain_list = [d.strip() for d in domains.split(",") if d.strip()]
+            if domain_list and "admin" not in domain_list:
+                query["domain"] = {"$in": domain_list}
+        elif role and role != "admin":
             query["tableRole"] = role
-        else:
-            # If no role, list all approved tables except system tables
+        elif not role:
             query["tableRole"] = {"$ne": "system"}
+                
+        collection_name = "tableStatusNew"
+        if collection_name not in db.list_collection_names() or db[collection_name].count_documents({}) == 0:
+            collection_name = "tableStatus"
+            query.pop("domain", None)
+            query.pop("tableType", None)
+            if role and role != "admin":
+                query["tableRole"] = role
+            elif not role:
+                query["tableRole"] = {"$ne": "system"}
             
-        cursor = db["tableStatus"].find(query)
+        cursor = db[collection_name].find(query)
         allowed = [doc["tableName"] for doc in cursor]
             
         metadata = {}
@@ -207,6 +221,38 @@ async def get_metadata(role: str = None):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/cbi/metadata")
+async def get_cbi_metadata():
+    try:
+        if not MONGODB_URI:
+            raise HTTPException(status_code=500, detail="MONGODB_URI is not set in environment variables")
+        client = MongoClient(MONGODB_URI)
+        db = client["bankingSdlcDB"]
+        
+        cursor = db["tableStatusNew"].find({"approvalStatus": "approved"})
+        
+        metadata = {}
+        for doc in cursor:
+            table_name = doc["tableName"]
+            domain = doc.get("domain") or doc.get("tableDomain", "Unknown")
+            
+            meta_store_doc = db["semanticMetaStore"].find_one({"collection_name": table_name})
+            columns = []
+            if meta_store_doc and "fields" in meta_store_doc:
+                columns = [f["field_name"] for f in meta_store_doc["fields"]]
+            else:
+                sample_doc = db[table_name].find_one()
+                if sample_doc:
+                    columns = [key for key in sample_doc.keys() if key != '_id']
+                    
+            metadata[table_name] = {
+                "domain": domain,
+                "columns": columns
+            }
+        return metadata
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/login", response_model=LoginResponse)
 async def login(request: LoginRequest):
     try:
@@ -215,14 +261,88 @@ async def login(request: LoginRequest):
         client = MongoClient(MONGODB_URI)
         db = client["bankingSdlcDB"]
         
-        user = db["sdlcUsers"].find_one({"userId": request.userId})
+        user = db["sdlcUsersNew"].find_one({"userId": request.userId})
         if not user or user.get("password") != request.password:
             raise HTTPException(status_code=401, detail="Invalid userId or password")
+            
+        domains_list = user.get("domain", [])
+        if isinstance(domains_list, str):
+            domains_list = [domains_list]
             
         return LoginResponse(
             status="success",
             userId=user["userId"],
-            role=user["role"]
+            role=user["role"],
+            canView=user.get("canView", "both"),
+            domain=domains_list
+        )
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/register", response_model=RegisterResponse)
+async def register(request: RegisterRequest, background_tasks: BackgroundTasks):
+    try:
+        if not MONGODB_URI:
+            raise HTTPException(status_code=500, detail="MONGODB_URI is not set in environment variables")
+        client = MongoClient(MONGODB_URI)
+        db = client["bankingSdlcDB"]
+        
+        # Check if user already exists in active or pending collections
+        existing_user = db["sdlcUsersNew"].find_one({"userId": request.userId})
+        existing_temp = db["sdlcUsersTemp"].find_one({"userId": request.userId})
+        if existing_user or existing_temp:
+            raise HTTPException(status_code=400, detail="User ID already exists or is pending approval. Please choose a different one.")
+            
+        # Role mappings as specified in (3A) and (2)
+        role_mapping = {
+            "Business Analyst": {
+                "domain": ["Retail Banking", "Healthcare", "Digital Channels"],
+                "canView": "sdlc"
+            },
+            "Data Engineer": {
+                "domain": ["Data Engineering", "Lending", "Collections"],
+                "canView": "sdlc"
+            },
+            "Data Scientist": {
+                "domain": ["Cards", "Media", "Data Engineering"],
+                "canView": "both"
+            },
+            "Lead": {
+                "domain": ["Retail Banking", "Lending", "Collections"],
+                "canView": "both"
+            },
+            "Project Lead": {
+                "domain": ["Data Engineering", "Healthcare", "Media", "Retail Banking", "Lending", "Cards", "Digital Channels", "Collections"],
+                "canView": "cbi"
+            },
+            "Vertical Lead": {
+                "domain": ["Data Engineering", "Healthcare", "Media", "Retail Banking", "Lending", "Cards", "Digital Channels", "Collections"],
+                "canView": "cbi"
+            }
+        }
+        
+        role_info = role_mapping.get(request.role)
+        if not role_info:
+            raise HTTPException(status_code=400, detail=f"Invalid role selected: {request.role}")
+            
+        user_doc = {
+            "userId": request.userId,
+            "password": request.password,
+            "domain": role_info["domain"],
+            "role": request.role,
+            "canView": role_info["canView"]
+        }
+        
+        db["sdlcUsersTemp"].insert_one(user_doc)
+        
+        background_tasks.add_task(send_user_registration_email, request.userId, request.role, role_info["domain"])
+        
+        return RegisterResponse(
+            status="success",
+            message="Registration successful - but pending admin approval",
+            userId=request.userId
         )
     except HTTPException as he:
         raise he
@@ -1614,6 +1734,65 @@ async def get_quota_details(role: str = "Data Engineering"):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def resolve_domains_if_needed(request: CodeGenerationRequest, db_inst):
+    if not request.sample_data_size or request.sample_data_size <= 0:
+        request.sample_data_size = 1000
+        
+    if not request.tables and request.domains:
+        cursor = db_inst["tableStatusNew"].find({
+            "approvalStatus": "approved",
+            "domain": {"$in": request.domains}
+        })
+        tables_in_domains = [doc["tableName"] for doc in cursor]
+        
+        all_cols = []
+        for t_name in tables_in_domains:
+            meta_doc = db_inst["semanticMetaStore"].find_one({"collection_name": t_name})
+            if meta_doc and "fields" in meta_doc:
+                all_cols.extend([f["field_name"] for f in meta_doc["fields"]])
+            else:
+                sample_doc = db_inst[t_name].find_one()
+                if sample_doc:
+                    all_cols.extend([k for k in sample_doc.keys() if k != "_id"])
+                    
+        request.tables = tables_in_domains
+        request.columns = list(set(all_cols))
+
+def detect_tables_and_columns(sql_code: str, db_inst) -> tuple:
+    cursor = db_inst["tableStatusNew"].find({"approvalStatus": "approved"})
+    detected_tables = []
+    detected_columns = []
+    
+    code_str = sql_code.strip()
+    if "```" in code_str:
+        blocks = re.findall(r'```(?:\w+)?\n(.*?)\n```', code_str, re.DOTALL)
+        if blocks:
+            code_str = blocks[0].strip()
+        else:
+            code_str = re.sub(r'```(?:\w+)?', '', code_str).strip()
+            
+    for doc in cursor:
+        table_name = doc["tableName"]
+        pattern = rf"\b{re.escape(table_name)}\b"
+        if re.search(pattern, code_str, re.IGNORECASE):
+            detected_tables.append(table_name)
+            
+            meta_store_doc = db_inst["semanticMetaStore"].find_one({"collection_name": table_name})
+            columns = []
+            if meta_store_doc and "fields" in meta_store_doc:
+                columns = [f["field_name"] for f in meta_store_doc["fields"]]
+            else:
+                sample_doc = db_inst[table_name].find_one()
+                if sample_doc:
+                    columns = [key for key in sample_doc.keys() if key != '_id']
+                    
+            for col in columns:
+                col_pattern = rf"\b{re.escape(col)}\b"
+                if re.search(col_pattern, code_str, re.IGNORECASE):
+                    detected_columns.append(col)
+                    
+    return list(set(detected_tables)), list(set(detected_columns))
+
 @app.post("/generate/estimate")
 async def estimate_tokens(request: CodeGenerationRequest):
     try:
@@ -1621,6 +1800,7 @@ async def estimate_tokens(request: CodeGenerationRequest):
         if MONGODB_URI and request.role:
             client_db = MongoClient(MONGODB_URI)
             db = client_db["bankingSdlcDB"]
+            resolve_domains_if_needed(request, db)
             quota = get_or_create_quota(db, request.role)
             
             model_key = request.model or "gpt-4o"
@@ -1644,6 +1824,7 @@ async def estimate_tokens(request: CodeGenerationRequest):
             try:
                 client_db = MongoClient(MONGODB_URI)
                 db = client_db["bankingSdlcDB"]
+                resolve_domains_if_needed(request, db)
                 schema_docs = list(db['semanticMetaStore'].find({"collection_name": {"$in": request.tables}}))
                 
                 schema_context_list = []
@@ -1734,9 +1915,12 @@ async def generate_code(request: CodeGenerationRequest):
         role = request.role
         model_key = request.model or "gpt-4o"
         
-        if MONGODB_URI and role:
+        if MONGODB_URI:
             client_db = MongoClient(MONGODB_URI)
             db = client_db["bankingSdlcDB"]
+            resolve_domains_if_needed(request, db)
+            
+        if db is not None and role:
             quota = get_or_create_quota(db, role)
             
             # Check model tokens limit
@@ -1754,6 +1938,11 @@ async def generate_code(request: CodeGenerationRequest):
                 )
 
         result = await generator.generate(request)
+        if db is not None:
+            detected_tables, detected_columns = detect_tables_and_columns(result.generated_code, db)
+            result.detected_tables = detected_tables if detected_tables else request.tables
+            result.detected_columns = detected_columns if detected_columns else request.columns
+
         if db is not None and role and result:
             p_tokens = result.prompt_tokens or 0
             c_tokens = result.completion_tokens or 0
@@ -1997,6 +2186,37 @@ Please login to the Admin panel to approve or reject this request.
     except Exception as e:
         print(f"[ERROR] Failed to send email via Resend: {e}")
 
+def send_user_registration_email(userId: str, role: str, domains: list):
+    import resend
+    resend_key = os.getenv("RESEND_API_KEY")
+    if not resend_key:
+        print("[WARNING] RESEND_API_KEY is not set in environment variables. Email will not be sent.")
+        return
+        
+    resend.api_key = resend_key
+    
+    admin_email = "muthuk60@gmail.com"
+    try:
+        r = resend.Emails.send({
+            "from": "onboarding@resend.dev",
+            "to": admin_email,
+            "subject": f"User Registration Pending Approval - {userId}",
+            "html": f"""<strong>Hi Admin,</strong><br/><br/>
+A new user registration is pending approval.<br/><br/>
+<strong>User Details:</strong><br/>
+<ul>
+  <li><strong>User ID:</strong> {userId}</li>
+  <li><strong>Role:</strong> {role}</li>
+  <li><strong>Domains:</strong> {", ".join(domains)}</li>
+</ul>
+<br/>
+Please login to the Admin panel to approve or reject this request.
+"""
+        })
+        print(f"Resend email dispatch for user registration succeeded: {r}")
+    except Exception as e:
+        print(f"[ERROR] Failed to send user registration email via Resend: {e}")
+
 def clean_column_name(name: str) -> str:
     name_str = str(name).strip()
     name_with_underscores = re.sub(r'\s+', '_', name_str)
@@ -2112,6 +2332,7 @@ async def create_table(
     tableSchema: str = Form(...),
     userId: str = Form(...),
     role: str = Form(...),
+    tableDomain: str = Form(...),
     file: UploadFile = File(...)
 ):
     try:
@@ -2124,7 +2345,7 @@ async def create_table(
         if not cleaned_tableName:
             raise HTTPException(status_code=400, detail="Invalid table name provided.")
             
-        existing_table = db["tableStatus"].find_one({"tableName": cleaned_tableName})
+        existing_table = db["tableStatusNew"].find_one({"tableName": cleaned_tableName})
         if existing_table:
             raise HTTPException(status_code=400, detail=f"Table '{cleaned_tableName}' already exists or is pending approval.")
             
@@ -2241,9 +2462,12 @@ async def create_table(
             "createdTimestamp": created_str,
             "approvalTimestamp": "",
             "tableRole": role,
-            "tableSchema": tableSchema
+            "tableSchema": tableSchema,
+            "tableDomain": tableDomain,
+            "domain": tableDomain,
+            "tableType": "sdlc"
         }
-        db["tableStatus"].insert_one(status_doc)
+        db["tableStatusNew"].insert_one(status_doc)
         
         background_tasks.add_task(send_approval_email, cleaned_tableName, tableSchema, userId, role, created_str)
         
@@ -2261,7 +2485,7 @@ async def get_pending_approvals():
         client = MongoClient(MONGODB_URI)
         db = client["bankingSdlcDB"]
         
-        cursor = db["tableStatus"].find({"approvalStatus": "pending"})
+        cursor = db["tableStatusNew"].find({"approvalStatus": "pending"})
         pending = []
         for doc in cursor:
             doc["_id"] = str(doc["_id"])
@@ -2282,7 +2506,7 @@ async def approve_table(tableName: str):
         ist_tz = timezone(timedelta(hours=5, minutes=30))
         approval_str = datetime.now(ist_tz).strftime("%d-%m-%Y-%H-%M-%S") + " IST"
         
-        res = db["tableStatus"].update_one(
+        res = db["tableStatusNew"].update_one(
             {"tableName": tableName, "approvalStatus": "pending"},
             {"$set": {"approvalStatus": "approved", "approvalTimestamp": approval_str}}
         )
@@ -2303,7 +2527,7 @@ async def reject_table(tableName: str):
         client = MongoClient(MONGODB_URI)
         db = client["bankingSdlcDB"]
         
-        res = db["tableStatus"].update_one(
+        res = db["tableStatusNew"].update_one(
             {"tableName": tableName, "approvalStatus": "pending"},
             {"$set": {"approvalStatus": "rejected"}}
         )
@@ -2330,6 +2554,69 @@ async def get_semantic_layer(tableName: str):
             
         doc["_id"] = str(doc["_id"])
         return doc
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/pending-user-registrations")
+async def get_pending_user_registrations():
+    try:
+        if not MONGODB_URI:
+            raise HTTPException(status_code=500, detail="MONGODB_URI is not set in environment variables")
+        client = MongoClient(MONGODB_URI)
+        db = client["bankingSdlcDB"]
+        
+        cursor = db["sdlcUsersTemp"].find()
+        pending = []
+        for doc in cursor:
+            pending.append({
+                "userId": doc.get("userId"),
+                "role": doc.get("role")
+            })
+        return pending
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/approve-user/{userId}")
+async def approve_user(userId: str):
+    try:
+        if not MONGODB_URI:
+            raise HTTPException(status_code=500, detail="MONGODB_URI is not set in environment variables")
+        client = MongoClient(MONGODB_URI)
+        db = client["bankingSdlcDB"]
+        
+        # Find user in sdlcUsersTemp
+        temp_user = db["sdlcUsersTemp"].find_one({"userId": userId})
+        if not temp_user:
+            raise HTTPException(status_code=404, detail="Pending user registration not found")
+            
+        # Copy to active users collection
+        temp_user.pop("_id", None)
+        db["sdlcUsersNew"].insert_one(temp_user)
+        
+        # Remove from temporary collection
+        db["sdlcUsersTemp"].delete_one({"userId": userId})
+        
+        return {"status": "success", "message": f"User '{userId}' approved and registered successfully."}
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/reject-user/{userId}")
+async def reject_user(userId: str):
+    try:
+        if not MONGODB_URI:
+            raise HTTPException(status_code=500, detail="MONGODB_URI is not set in environment variables")
+        client = MongoClient(MONGODB_URI)
+        db = client["bankingSdlcDB"]
+        
+        res = db["sdlcUsersTemp"].delete_one({"userId": userId})
+        if res.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Pending user registration not found")
+            
+        return {"status": "success", "message": f"User '{userId}' registration request rejected."}
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e

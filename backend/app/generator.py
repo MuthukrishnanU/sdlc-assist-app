@@ -151,6 +151,7 @@ class CodeGenerator:
             4. Provide realistic simulated aggregate Data Quality (DQ) insights for the entire result set.
             5. Return the response as a JSON object with exactly these keys: 
                - "generated_code": (string) The full code block.
+               - "flow_explanation": (string) A detailed step-by-step description of how the code was generated, detailing which tables and columns were referred, how much sample data was referred, and the transformation logic applied.
                - "dq_insights": (object) 
                  - "row_count": (integer) Total number of rows.
                  - "null_values": (integer) Total number of nulls across all columns.
@@ -272,6 +273,7 @@ class CodeGenerator:
             return CodeGenerationResponse(
                 generated_code=data["generated_code"],
                 dq_insights=DQInsights(**sanitize_dq_insights(data.get("dq_insights", {}))),
+                flow_explanation=data.get("flow_explanation", "Standard code generation execution completed."),
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens
             )
@@ -290,6 +292,7 @@ class CodeGenerator:
                      distinct_values=max(1, request.sample_data_size - 2),
                      empty_strings=0
                 ),
+                flow_explanation=f"Error encountered during code generation: {str(e)}. Fallback mock response returned.",
                 prompt_tokens=0,
                 completion_tokens=0
             )

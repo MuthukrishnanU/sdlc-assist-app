@@ -10,6 +10,7 @@ class CodeGenerationRequest(BaseModel):
     model: Optional[str] = Field("gpt-4o", description="LLM model to use for generation")
     role: Optional[str] = Field(None, description="User role for tracking and quota checks")
     userId: Optional[str] = Field(None, description="User ID for tracking and quota checks")
+    domains: Optional[List[str]] = Field(None, description="List of domains selected (used for CBI smart generation)")
 
 class DQInsights(BaseModel):
     row_count: int
@@ -26,6 +27,9 @@ class CodeGenerationResponse(BaseModel):
     dq_insights: DQInsights
     prompt_tokens: Optional[int] = 0
     completion_tokens: Optional[int] = 0
+    flow_explanation: Optional[str] = None
+    detected_tables: Optional[List[str]] = None
+    detected_columns: Optional[List[str]] = None
 
 class SimulationRequest(BaseModel):
     tables: List[str]
@@ -93,3 +97,15 @@ class LoginResponse(BaseModel):
     status: str
     userId: str
     role: str
+    canView: str
+    domain: List[str]
+
+class RegisterRequest(BaseModel):
+    userId: str
+    password: str
+    role: str
+
+class RegisterResponse(BaseModel):
+    status: str
+    message: str
+    userId: str
