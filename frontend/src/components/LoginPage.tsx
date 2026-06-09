@@ -1,10 +1,10 @@
 import React from 'react';
-import { Lock, User, ShieldAlert, Code2, HelpCircle, ChevronDown, Key, Sun, Moon } from 'lucide-react';
+import { Lock, User, ShieldAlert, Code2, HelpCircle, ChevronDown, Key, Sun, Moon, X } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import axios from 'axios';
 
 interface LoginPageProps {
-  onLoginSuccess: (userId: string, role: string) => void;
+  onLoginSuccess: (userId: string, role: string, canView: string, domain: string[]) => void;
   apiBaseUrl: string;
 }
 
@@ -15,6 +15,16 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, apiBaseUrl }) => 
   const [error, setError] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
   const [showHelper, setShowHelper] = React.useState(false);
+
+  // Modal and Registration States
+  const [isRbacModalOpen, setIsRbacModalOpen] = React.useState(false);
+  const [isRegisterModalOpen, setIsRegisterModalOpen] = React.useState(false);
+  const [regUserId, setRegUserId] = React.useState('');
+  const [regPassword, setRegPassword] = React.useState('');
+  const [regRole, setRegRole] = React.useState('Business Analyst');
+  const [regError, setRegError] = React.useState<string | null>(null);
+  const [regSuccess, setRegSuccess] = React.useState<string | null>(null);
+  const [regLoading, setRegLoading] = React.useState(false);
 
   const demoAccounts = [
     { role: 'Data Engineering', username: 'de_user_1', password: 'de_pass_1', desc: 'Access core Data Engineering tables' },
@@ -39,7 +49,12 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, apiBaseUrl }) => 
       });
 
       if (response.data.status === 'success') {
-        onLoginSuccess(response.data.userId, response.data.role);
+        onLoginSuccess(
+          response.data.userId,
+          response.data.role,
+          response.data.canView || 'both',
+          response.data.domain || []
+        );
       } else {
         setError('Login failed. Please try again.');
       }
@@ -57,6 +72,40 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, apiBaseUrl }) => 
     setPassword(pass);
     setError(null);
     setShowHelper(false);
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!regUserId.trim() || !regPassword.trim() || !regRole) {
+      setRegError('All fields are mandatory.');
+      return;
+    }
+
+    setRegLoading(true);
+    setRegError(null);
+    setRegSuccess(null);
+
+    try {
+      const response = await axios.post(`${apiBaseUrl}/register`, {
+        userId: regUserId.trim(),
+        password: regPassword.trim(),
+        role: regRole,
+      });
+
+      if (response.data.status === 'success') {
+        setRegSuccess(response.data.message || 'Registration successful - but pending admin approval');
+        setRegUserId('');
+        setRegPassword('');
+      } else {
+        setRegError('Registration failed. Please try again.');
+      }
+    } catch (err: any) {
+      console.error('Registration error:', err);
+      const message = err.response?.data?.detail || 'Registration failed. Please try again.';
+      setRegError(message);
+    } finally {
+      setRegLoading(false);
+    }
   };
 
   return (
@@ -102,9 +151,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, apiBaseUrl }) => 
           </div>
           <h1 className={`text-3xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r ${isDark ? 'from-axis-cream to-axis-red' : 'from-axis-burgundy to-axis-red'
             }`}>
-            SDLC Assist Portal
+            SDLC Assist/Conversational BI Portal
           </h1>
-          <p className={`text-sm font-medium ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
+          <p className={`text-sm hidden font-medium ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
             Role-Based Access Control (RBAC) System
           </p>
         </div>
@@ -177,6 +226,36 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, apiBaseUrl }) => 
             </button>
           </form>
 
+          <div className="flex gap-3 mt-4">
+            <button
+              type="button"
+              onClick={() => {
+                setRegUserId('');
+                setRegPassword('');
+                setRegRole('Business Analyst');
+                setRegError(null);
+                setRegSuccess(null);
+                setIsRegisterModalOpen(true);
+              }}
+              className={`flex-1 text-center py-2.5 rounded-xl text-xs font-bold transition-all border ${isDark
+                ? 'border-white/10 bg-white/5 hover:bg-white/10 text-white'
+                : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
+                }`}
+            >
+              Register New User
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsRbacModalOpen(true)}
+              className={`flex-1 text-center py-2.5 rounded-xl text-xs font-bold transition-all border ${isDark
+                ? 'border-white/10 bg-white/5 hover:bg-white/10 text-white'
+                : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
+                }`}
+            >
+              RBAC Details
+            </button>
+          </div>
+
           {/* Quick Access Helper */}
           <div className="hidden mt-6 pt-6 border-t border-dashed border-gray-200/50 dark:border-white/10">
             <button
@@ -221,6 +300,212 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, apiBaseUrl }) => 
           </div>
         </div>
       </div>
+
+      {/* RBAC Details Modal */}
+      {isRbacModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className={`w-full max-w-3xl rounded-3xl p-6 shadow-2xl relative border ${isDark ? 'bg-axis-burgundy-deep text-white border-white/10' : 'bg-white text-gray-800 border-gray-200'
+            }`}>
+            <button
+              type="button"
+              onClick={() => setIsRbacModalOpen(false)}
+              className={`absolute top-4 right-4 p-1.5 rounded-lg hover:bg-black/10 transition-colors ${isDark ? 'text-white/60 hover:text-white' : 'text-gray-400 hover:text-gray-600'
+                }`}
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className={`text-lg font-bold flex items-center gap-2 mb-4 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`}>
+              <ShieldAlert className="w-5 h-5 text-axis-red" /> Role-Based Access Control (RBAC) Details
+            </h3>
+
+            <div className={`rounded-2xl overflow-hidden shadow-xl border ${isDark ? 'bg-axis-burgundy-dark/45 border-white/10' : 'bg-white border-gray-200'}`}>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead className={`text-[10px] uppercase tracking-wider border-b ${isDark ? 'bg-black/20 text-white/50 border-white/10' : 'bg-gray-50 text-gray-500 border-gray-200'
+                    }`}>
+                    <tr>
+                      <th scope="col" className="px-6 py-3.5 font-semibold">Role</th>
+                      <th scope="col" className="px-6 py-3.5 font-semibold">Domains</th>
+                      <th scope="col" className="px-6 py-3.5 font-semibold">Application Access</th>
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y ${isDark ? 'divide-white/10 text-gray-200' : 'divide-gray-100 text-gray-700'}`}>
+                    {[
+                      {
+                        role: "Business Analyst",
+                        domains: "Retail Banking, Healthcare, Digital Channels",
+                        access: "SDLC Only"
+                      },
+                      {
+                        role: "Data Engineer",
+                        domains: "Data Engineering, Lending, Collections",
+                        access: "SDLC Only"
+                      },
+                      {
+                        role: "Data Scientist",
+                        domains: "Cards, Media, Data Engineering",
+                        access: "SDLC & Conversational BI"
+                      },
+                      {
+                        role: "Lead",
+                        domains: "Retail Banking, Lending, Collections",
+                        access: "SDLC & Conversational BI"
+                      },
+                      {
+                        role: "Project Lead",
+                        domains: "Data Engineering, Healthcare, Media, Retail Banking, Lending, Cards, Digital Channels, Collections",
+                        access: "Conversational BI only"
+                      },
+                      {
+                        role: "Vertical Lead",
+                        domains: "Data Engineering, Healthcare, Media, Retail Banking, Lending, Cards, Digital Channels, Collections",
+                        access: "Conversational BI only"
+                      }
+                    ].map((item, idx) => (
+                      <tr key={idx} className="hover:bg-black/5 transition-colors duration-200">
+                        <td className="px-6 py-4 font-bold">{item.role}</td>
+                        <td className="px-6 py-4 leading-relaxed">{item.domains}</td>
+                        <td className="px-6 py-4 font-semibold text-axis-red">{item.access}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button
+                type="button"
+                onClick={() => setIsRbacModalOpen(false)}
+                className={`px-5 py-2 rounded-xl text-xs font-bold text-white bg-axis-red hover:brightness-110 shadow-lg shadow-axis-red/20 transition-all`}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Register New User Modal */}
+      {isRegisterModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className={`w-full max-w-md rounded-3xl p-6 shadow-2xl relative border transition-colors duration-400 ${isDark ? 'bg-axis-burgundy-deep text-white border-white/10' : 'bg-white text-gray-800 border-gray-200'
+            }`}>
+            <button
+              type="button"
+              onClick={() => setIsRegisterModalOpen(false)}
+              className={`absolute top-4 right-4 p-1.5 rounded-lg hover:bg-black/10 transition-colors ${isDark ? 'text-white/60 hover:text-white' : 'text-gray-400 hover:text-gray-600'
+                }`}
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className={`text-lg font-bold flex items-center gap-2 mb-2 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`}>
+              Register New User
+            </h3>
+            <p className={`text-xs mb-6 ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
+              Create a new user account with role-based domain access.
+            </p>
+
+            <form onSubmit={handleRegister} className="space-y-4">
+              {regError && (
+                <div className={`p-4 rounded-xl flex items-start gap-3 border text-xs font-semibold animate-in fade-in ${isDark ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-red-50 border-red-200 text-red-700'
+                  }`}>
+                  <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" />
+                  <div>{regError}</div>
+                </div>
+              )}
+
+              {regSuccess && (
+                <div className={`p-4 rounded-xl flex items-start gap-3 border text-xs font-semibold animate-in fade-in ${isDark ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                  }`}>
+                  <div>{regSuccess}</div>
+                </div>
+              )}
+
+              {/* User ID */}
+              <div className="space-y-2">
+                <label className={`text-xs font-bold uppercase tracking-wider flex items-center gap-2 ${isDark ? 'text-white/50' : 'text-gray-500'}`}>
+                  User ID
+                </label>
+                <input
+                  type="text"
+                  placeholder="Enter User ID"
+                  value={regUserId}
+                  onChange={(e) => setRegUserId(e.target.value)}
+                  className={`w-full rounded-xl pl-4 pr-4 py-3 text-sm focus:outline-none focus:ring-2 transition-all ${isDark
+                    ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30 focus:border-axis-red/50'
+                    : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20 focus:border-axis-burgundy/50'
+                    }`}
+                />
+              </div>
+
+              {/* Password */}
+              <div className="space-y-2">
+                <label className={`text-xs font-bold uppercase tracking-wider flex items-center gap-2 ${isDark ? 'text-white/50' : 'text-gray-500'}`}>
+                  Password
+                </label>
+                <input
+                  type="password"
+                  placeholder="Enter Password"
+                  value={regPassword}
+                  onChange={(e) => setRegPassword(e.target.value)}
+                  className={`w-full rounded-xl pl-4 pr-4 py-3 text-sm focus:outline-none focus:ring-2 transition-all ${isDark
+                    ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30 focus:border-axis-red/50'
+                    : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20 focus:border-axis-burgundy/50'
+                    }`}
+                />
+              </div>
+
+              {/* Role */}
+              <div className="space-y-2">
+                <label className={`text-xs font-bold uppercase tracking-wider flex items-center gap-2 ${isDark ? 'text-white/50' : 'text-gray-550'}`}>
+                  Role
+                </label>
+                <select
+                  value={regRole}
+                  onChange={(e) => setRegRole(e.target.value)}
+                  className={`w-full rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 transition-all cursor-pointer ${isDark
+                    ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
+                    : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'
+                    }`}
+                >
+                  {["Business Analyst", "Data Engineer", "Data Scientist", "Lead", "Project Lead", "Vertical Lead"].map(role => (
+                    <option key={role} value={role} className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
+                      {role}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsRegisterModalOpen(false)}
+                  className={`flex-1 py-3 rounded-xl text-xs font-bold transition-all border ${isDark
+                    ? 'border-white/10 bg-white/5 hover:bg-white/10 text-white'
+                    : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
+                    }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={regLoading}
+                  className="flex-1 py-3 rounded-xl text-xs font-bold text-white bg-axis-red hover:brightness-110 shadow-lg shadow-axis-red/20 transition-all flex items-center justify-center gap-2"
+                >
+                  {regLoading ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    'Register'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

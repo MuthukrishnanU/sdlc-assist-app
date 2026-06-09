@@ -4,7 +4,7 @@ import { useTheme } from '../ThemeContext';
 import axios from 'axios';
 
 interface CreateTablePageProps {
-  user: { userId: string; role: string };
+  user: { userId: string; role: string; domain?: string[] };
   onBack: () => void;
   apiBaseUrl: string;
 }
@@ -23,6 +23,7 @@ const CreateTablePage: React.FC<CreateTablePageProps> = ({ user, onBack, apiBase
   // Form states
   const [tableName, setTableName] = React.useState('');
   const [tableSchema, setTableSchema] = React.useState('');
+  const [tableDomain, setTableDomain] = React.useState('');
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
 
   // UI states
@@ -74,6 +75,10 @@ const CreateTablePage: React.FC<CreateTablePageProps> = ({ user, onBack, apiBase
       setStatusMessage({ type: 'error', text: 'Please enter a schema name.' });
       return;
     }
+    if (!tableDomain) {
+      setStatusMessage({ type: 'error', text: 'Please select a table domain.' });
+      return;
+    }
     if (!selectedFile) {
       setStatusMessage({ type: 'error', text: 'Please choose an Excel file to upload.' });
       return;
@@ -87,6 +92,7 @@ const CreateTablePage: React.FC<CreateTablePageProps> = ({ user, onBack, apiBase
     formData.append('tableSchema', tableSchema.trim());
     formData.append('userId', user.userId);
     formData.append('role', user.role);
+    formData.append('tableDomain', tableDomain);
     formData.append('file', selectedFile);
 
     try {
@@ -105,6 +111,7 @@ const CreateTablePage: React.FC<CreateTablePageProps> = ({ user, onBack, apiBase
         // Clear form
         setTableName('');
         setTableSchema('');
+        setTableDomain('');
         setSelectedFile(null);
         // Refresh admin list just in case
         fetchPendingApprovals();
@@ -291,6 +298,30 @@ const CreateTablePage: React.FC<CreateTablePageProps> = ({ user, onBack, apiBase
                     : 'bg-white border border-gray-200 text-gray-700 placeholder-gray-400 focus:ring-axis-burgundy/20'
                     }`}
                 />
+              </div>
+
+              {/* Select Table Domain */}
+              <div className="space-y-1.5">
+                <label className={`text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1.5 ${isDark ? 'text-white/50' : 'text-gray-500'}`}>
+                  Select Table Domain
+                </label>
+                <select
+                  value={tableDomain}
+                  onChange={(e) => setTableDomain(e.target.value)}
+                  className={`w-full rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 transition-all cursor-pointer ${isDark
+                    ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
+                    : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'
+                  }`}
+                >
+                  <option value="" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
+                    Select Table Domain
+                  </option>
+                  {user.domain?.map((d) => (
+                    <option key={d} value={d} className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* File Upload */}

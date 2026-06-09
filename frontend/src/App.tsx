@@ -5,50 +5,75 @@ import InputSection from './components/InputSection';
 import MainSection from './components/MainSection';
 import LoginPage from './components/LoginPage';
 import CreateTablePage from './components/CreateTablePage';
+import AdminDashboard from './components/AdminDashboard';
 
 const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? 'http://localhost:8000'
   : 'https://sdlc-assist-app-be.onrender.com';
 
 function App() {
-  const [user, setUser] = React.useState<{ userId: string; role: string } | null>(null);
+  const [user, setUser] = React.useState<{ userId: string; role: string; canView: string; domain: string[] } | null>(null);
   const [generatedCode, setGeneratedCode] = React.useState<string | null>(null);
+  const [flowExplanation, setFlowExplanation] = React.useState<string | null>(null);
   const [dqInsights, setDqInsights] = React.useState<any | null>(null);
   const [lastFormData, setLastFormData] = React.useState<any | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [generationTokens, setGenerationTokens] = React.useState<{ prompt_tokens: number, completion_tokens: number } | null>(null);
   const [currentPage, setCurrentPage] = React.useState<'main' | 'create-table'>('main');
+  const [activeTab, setActiveTab] = React.useState<'sdlc' | 'cbi'>('sdlc');
 
   React.useEffect(() => {
     const storedUser = localStorage.getItem('sdlc_user');
     if (storedUser) {
       try {
-        setUser(JSON.parse(storedUser));
+        const parsed = JSON.parse(storedUser);
+        setUser(parsed);
+        if (parsed.canView === 'cbi') {
+          setActiveTab('cbi');
+        } else {
+          setActiveTab('sdlc');
+        }
       } catch (e) {
         localStorage.removeItem('sdlc_user');
       }
     }
   }, []);
 
-  const handleLoginSuccess = (userId: string, role: string) => {
-    const newUser = { userId, role };
+  React.useEffect(() => {
+    setGeneratedCode(null);
+    setFlowExplanation(null);
+    setDqInsights(null);
+    setGenerationTokens(null);
+    setLastFormData(null);
+  }, [activeTab]);
+
+  const handleLoginSuccess = (userId: string, role: string, canView: string, domain: string[]) => {
+    const newUser = { userId, role, canView, domain };
     setUser(newUser);
     localStorage.setItem('sdlc_user', JSON.stringify(newUser));
+    if (canView === 'cbi') {
+      setActiveTab('cbi');
+    } else {
+      setActiveTab('sdlc');
+    }
   };
 
   const handleLogout = () => {
     setUser(null);
     localStorage.removeItem('sdlc_user');
     setGeneratedCode(null);
+    setFlowExplanation(null);
     setDqInsights(null);
     setGenerationTokens(null);
     setLastFormData(null);
     setCurrentPage('main');
+    setActiveTab('sdlc');
   };
 
   const handleGenerate = async (formData: any) => {
     setLoading(true);
     setGeneratedCode(null);
+    setFlowExplanation(null);
     setDqInsights(null);
     setGenerationTokens(null);
     setLastFormData(formData);
@@ -60,11 +85,19 @@ function App() {
         userId: user?.userId
       });
       setGeneratedCode(response.data.generated_code);
+      setFlowExplanation(response.data.flow_explanation);
       setDqInsights(response.data.dq_insights);
       setGenerationTokens({
         prompt_tokens: response.data.prompt_tokens || 0,
         completion_tokens: response.data.completion_tokens || 0
       });
+      
+      // Update form data with detected tables and columns if returned by the API
+      setLastFormData((prev: any) => ({
+        ...prev,
+        tables: response.data.detected_tables || prev?.tables || [],
+        columns: response.data.detected_columns || prev?.columns || []
+      }));
     } catch (error) {
       console.error('Error generating code:', error);
       alert('Failed to generate code. Please ensure the backend is running and LLM API key is configured.');
@@ -83,7 +116,13 @@ function App() {
 
   return (
     <ThemeProvider>
-      {currentPage === 'create-table' ? (
+      {user.userId === 'admin' ? (
+        <AdminDashboard
+          user={user}
+          onLogout={handleLogout}
+          apiBaseUrl={API_BASE_URL}
+        />
+      ) : currentPage === 'create-table' ? (
         <CreateTablePage
           user={user}
           onBack={() => setCurrentPage('main')}
@@ -98,15 +137,19 @@ function App() {
             user={user}
             onLogout={handleLogout}
             onCreateNewTable={() => setCurrentPage('create-table')}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
           />
           <MainSection
             code={generatedCode}
+            flowExplanation={flowExplanation}
             insights={dqInsights}
             isLoading={loading}
             apiBaseUrl={API_BASE_URL}
             formData={lastFormData}
             generationTokens={generationTokens}
             user={user}
+            activeTab={activeTab}
           />
         </div>
       )}
