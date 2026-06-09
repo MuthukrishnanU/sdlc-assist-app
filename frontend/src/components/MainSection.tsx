@@ -1969,15 +1969,15 @@ const MainSection: React.FC<MainSectionProps> = ({
 
             {/* NEW Visualization Section */}
             {simulatedData.length > 0 && (
-              <section className="space-y-4 p-6 rounded-2xl border transition-colors duration-400 shadow-sm animate-in fade-in duration-300 bg-white dark:bg-axis-burgundy-dark/40 border-gray-200 dark:border-white/10">
-                <div className={`flex items-center gap-2 font-bold uppercase text-xs tracking-widest ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`}>
-                  <Activity className="w-4 h-4 text-axis-red" /> Visualization Panel
+              <section className="space-y-4 p-6 rounded-2xl border transition-colors duration-400 shadow-sm animate-in fade-in duration-300 bg-gradient-to-r from-axis-burgundy to-axis-red shadow-lg shadow-axis-burgundy/20">
+                <div className={`flex items-center gap-2 font-bold uppercase text-xs tracking-widest text-axis-cream`}>
+                  <Activity className="w-4 h-4 text-white" /> Visualization Panel
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* Select Type Dropdown */}
                   <div className="flex flex-col gap-1.5">
-                    <label className={`text-xs font-semibold ${isDark ? 'text-white/60' : 'text-gray-550'}`}>
+                    <label className={`text-xs font-semibold text-white/60`}>
                       Select Type
                     </label>
                     <select
@@ -2009,7 +2009,7 @@ const MainSection: React.FC<MainSectionProps> = ({
 
                   {/* Enter Visualization Subset Size */}
                   <div className="flex flex-col gap-1.5">
-                    <label className={`text-xs font-semibold ${isDark ? 'text-white/60' : 'text-gray-550'}`}>
+                    <label className={`text-xs font-semibold text-white/60`}>
                       Enter Visualization Subset Size
                     </label>
                     <input
