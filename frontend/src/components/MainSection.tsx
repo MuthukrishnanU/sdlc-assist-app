@@ -1155,6 +1155,14 @@ const MainSection: React.FC<MainSectionProps> = ({
       const barSpacing = plotHeight / uniqueLabels.length;
       const barHeight = Math.max(15, barSpacing * 0.55);
 
+      const stackTrendPoints = groupedData.map((g, rIdx) => {
+        const yRow = paddingTop + rIdx * barSpacing;
+        const barY = yRow + (barSpacing * 0.22);
+        const centerY = barY + barHeight / 2;
+        const screenX = paddingLeft + (g.totalVal / maxVal) * plotWidth;
+        return { x: screenX, y: centerY };
+      });
+
       return (
         <div className="flex flex-col gap-6 p-4">
           <div className="overflow-y-auto max-h-[550px] custom-scrollbar">
@@ -1215,6 +1223,18 @@ const MainSection: React.FC<MainSectionProps> = ({
                 );
               })}
               <line x1={paddingLeft} y1={paddingTop} x2={paddingLeft} y2={paddingTop + plotHeight} stroke={isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.1)"} />
+
+              {/* Trend Line for Stack Bar flowing through the end of each stacked bar */}
+              {stackTrendPoints.length >= 2 && (
+                <path
+                  d={stackTrendPoints.reduce((acc, p, idx) => idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`, "")}
+                  fill="none"
+                  stroke="#3B82F6"
+                  strokeWidth="2.5"
+                  strokeDasharray="6 4"
+                  className="drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]"
+                />
+              )}
 
               {/* Y-axis Label */}
               <text
