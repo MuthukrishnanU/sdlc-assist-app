@@ -313,6 +313,7 @@ Please confirm if this is possible (we need to store large code & output table f
 Provide me with an implementation plan.
 
 ToDo10Jun26:
+(1)
 I want an enhancement in "Approve GitHub Push" table to view DQ Insghts.
 
 Basically, I have added a new button in "AdminDashboard.tsx" called - "View DQ Insights".
@@ -323,5 +324,15 @@ Use the "DQ Insights" property of this backend response to display the tablewise
 Example: In the attached screenshot, we have 3 tables (Output Table, customerDetails and loanInfo).
 For each of these tables, we have many columns & their subsequent DQ Insights.
 In the modal/popup, Display separate sections/cards for each of these tables & for each table section, display the DQ Insights in tabular format (with every row depicting the columns & its DQ Insights details).
+
+Please confirm if this is possible. Provide me with an implementation plan.
+
+(2) User Input driven Visualization.
+I want to improve the user experience in "Visualization Panel" - where user must be able choose the parameters to be displayed in x-axis and y-axis.
+So, replace the dropdown "Select Parameter" with 2 dropdowns - "Select x-axis Parameter" and "Select y-axis Parameter".
+Both these dropdowns must have all the columns from the "Simulated Output Preview" table.
+User must select the parameters to be displayed in x-axis and y-axis.
+
+Also, a trend line must be displayed for - bar chart, column chart, line graph and scatter plot.
 
 Please confirm if this is possible. Provide me with an implementation plan.

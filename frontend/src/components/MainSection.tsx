@@ -82,8 +82,9 @@ const MainSection: React.FC<MainSectionProps> = ({
 
   // CBI Visualization States
   const [chartType, setChartType] = React.useState<string>('Bar Chart');
-  const [selectedParams, setSelectedParams] = React.useState<string[]>([]);
-  const [subsetSize, setSubsetSize] = React.useState<number>(10);
+  const [xAxisParam, setXAxisParam] = React.useState<string>('');
+  const [yAxisParam, setYAxisParam] = React.useState<string>('');
+  const [subsetSize, setSubsetSize] = React.useState<number>(0);
 
   React.useEffect(() => {
     setConsumptionCurrentPage(1);
@@ -104,8 +105,9 @@ const MainSection: React.FC<MainSectionProps> = ({
     setSelectedColumn('');
     setCurrentPage(1);
     setIsExplanationOpen(false);
-    setSelectedParams([]);
-    setSubsetSize(10);
+    setXAxisParam('');
+    setYAxisParam('');
+    setSubsetSize(0);
   }, [activeTab]);
 
   // Fetch Token consumption Logs
@@ -328,7 +330,9 @@ const MainSection: React.FC<MainSectionProps> = ({
 
     // Reset CBI state
     setChartType('Bar Chart');
-    setSelectedParams([]);
+    setXAxisParam('');
+    setYAxisParam('');
+    setSubsetSize(0);
     console.log(outputTableInsights);
     console.log(tableInsightsMap);
     setPodName('Personalisation');
@@ -466,7 +470,13 @@ const MainSection: React.FC<MainSectionProps> = ({
         model: formData.model
       });
       setSimulationData(response.data);
-      setSimulatedData(response.data.dataframe);
+      const df = response.data.dataframe || [];
+      setSimulatedData(df);
+      if (df.length < 10) {
+        setSubsetSize(df.length);
+      } else {
+        setSubsetSize(10);
+      }
       setColumnDetailsMap(response.data.column_details);
       setOutputTableInsights(response.data.dq_insights);
       if (response.data.table_dq_insights) {
@@ -706,72 +716,155 @@ const MainSection: React.FC<MainSectionProps> = ({
 
   // SVG Chart rendering logic
   const renderVisualization = () => {
-    if (selectedParams.length === 0) {
+    if (!xAxisParam || !yAxisParam) {
       return (
-        <div className="flex flex-col items-center justify-center p-12 text-sm italic opacity-50">
-          Please select parameters to visualize.
+        <div className="flex flex-col items-center justify-center p-12 text-sm italic opacity-50 text-white/70">
+          Please select both x-axis and y-axis parameters to visualize.
         </div>
       );
     }
 
-    let labelCol = "";
-    let valueCols: string[] = [];
+    const subset = simulatedData.slice(0, subsetSize);
+    const chartData: { label: string;[key: string]: any }[] = subset.map((row, idx) => {
+      const labelVal = String(row[xAxisParam] ?? `Row ${idx + 1}`);
+      return {
+        label: labelVal,
+        [yAxisParam]: Number(row[yAxisParam]) || 0
+      };
+    });
 
-    for (const p of selectedParams) {
-      const hasNonNumeric = simulatedData.some(row => {
-        const val = row[p];
-        return val !== null && val !== undefined && isNaN(Number(val));
-      });
-      if (hasNonNumeric && !labelCol) {
-        labelCol = p;
-      } else {
-        valueCols.push(p);
+    // Stack Bar Grouping Logic
+    const uniqueLabels: string[] = [];
+    subset.forEach((row, idx) => {
+      const label = String(row[xAxisParam] ?? `Row ${idx + 1}`);
+      if (!uniqueLabels.includes(label)) {
+        uniqueLabels.push(label);
+      }
+    });
+
+    const potentialStackKeys = Object.keys(subset[0] || {}).filter(
+      key => key !== xAxisParam && key !== yAxisParam
+    );
+
+    let stackKey = '';
+    for (const key of potentialStackKeys) {
+      const hasStringVal = subset.some(row => typeof row[key] === 'string' && isNaN(Number(row[key])));
+      if (hasStringVal) {
+        stackKey = key;
+        break;
       }
     }
 
-    if (!labelCol && selectedParams.length > 0) {
-      labelCol = selectedParams[0];
-      valueCols = selectedParams.slice(1);
-    }
-    if (valueCols.length === 0 && selectedParams.length > 0) {
-      labelCol = "index";
-      valueCols = [selectedParams[0]];
+    if (!stackKey && potentialStackKeys.length > 0) {
+      stackKey = potentialStackKeys[0];
     }
 
-    //let chartData: { label: string; [key: string]: number }[] = [];
-    let chartData: any[] = [];
-    if (valueCols.length === 0 && labelCol && labelCol !== "index") {
-      const counts: Record<string, number> = {};
-      simulatedData.forEach(row => {
-        const key = String(row[labelCol] || "null");
-        counts[key] = (counts[key] || 0) + 1;
+    const stackCategories: string[] = [];
+    if (stackKey) {
+      subset.forEach(row => {
+        const cat = String(row[stackKey] ?? 'Unknown');
+        if (!stackCategories.includes(cat)) {
+          stackCategories.push(cat);
+        }
       });
-      chartData = Object.keys(counts).map(key => ({
-        label: key,
-        "Count": counts[key]
-      }));
-      valueCols = ["Count"];
     } else {
-      const subset = simulatedData.slice(0, subsetSize);
-      chartData = subset.map((row, idx) => {
-        const labelVal = labelCol === "index" ? `Row ${idx + 1}` : String(row[labelCol] ?? `Row ${idx + 1}`);
-        const item: any = { label: labelVal };
-        valueCols.forEach(col => {
-          item[col] = Number(row[col]) || 0;
-        });
-        return item;
-      });
+      const counts = uniqueLabels.map(label =>
+        subset.filter(row => String(row[xAxisParam] ?? '') === label).length
+      );
+      const maxGroupSize = Math.max(0, ...counts);
+      for (let i = 0; i < maxGroupSize; i++) {
+        stackCategories.push(`Segment ${i + 1}`);
+      }
     }
+
+    const groupedData = uniqueLabels.map(label => {
+      const labelRows = subset.filter(row => String(row[xAxisParam] ?? '') === label);
+      const segments: { [cat: string]: number } = {};
+      let totalVal = 0;
+
+      stackCategories.forEach((cat, idx) => {
+        let val = 0;
+        if (stackKey) {
+          const matchingRows = labelRows.filter(row => String(row[stackKey] ?? 'Unknown') === cat);
+          val = matchingRows.reduce((sum, r) => sum + (Number(r[yAxisParam]) || 0), 0);
+        } else {
+          const row = labelRows[idx];
+          val = row ? (Number(row[yAxisParam]) || 0) : 0;
+        }
+        segments[cat] = val;
+        totalVal += val;
+      });
+
+      return {
+        label,
+        segments,
+        totalVal
+      };
+    });
 
     const colors = ['#EB1165', '#A31D1D', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'];
     const width = 1000;
-    const height = chartType === "Bar Chart" ? Math.max(400, chartData.length * 24) : 400;
+    const height = chartType === "Bar Chart" || chartType === "Stack Bar"
+      ? Math.max(400, (chartType === "Stack Bar" ? uniqueLabels.length : chartData.length) * 35)
+      : 400;
+
+    // Linear Regression (Trend Line) Helpers
+    const getTrendLine = (pts: { x: number; y: number }[]) => {
+      const n = pts.length;
+      if (n < 2) return null;
+
+      let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+      for (const p of pts) {
+        sumX += p.x;
+        sumY += p.y;
+        sumXY += p.x * p.y;
+        sumXX += p.x * p.x;
+      }
+
+      const denominator = n * sumXX - sumX * sumX;
+      if (denominator === 0) return null;
+
+      const slope = (n * sumXY - sumX * sumY) / denominator;
+      const intercept = (sumY - slope * sumX) / n;
+
+      const startX = pts[0].x;
+      const startY = slope * startX + intercept;
+      const endX = pts[n - 1].x;
+      const endY = slope * endX + intercept;
+
+      return { x1: startX, y1: startY, x2: endX, y2: endY };
+    };
+
+    const getBarTrendLine = (pts: { x: number; y: number }[]) => {
+      const n = pts.length;
+      if (n < 2) return null;
+
+      let sumX = 0, sumY = 0, sumXY = 0, sumYY = 0;
+      for (const p of pts) {
+        sumX += p.x;
+        sumY += p.y;
+        sumXY += p.x * p.y;
+        sumYY += p.y * p.y;
+      }
+
+      const denominator = n * sumYY - sumY * sumY;
+      if (denominator === 0) return null;
+
+      const slope = (n * sumXY - sumX * sumY) / denominator;
+      const intercept = (sumX - slope * sumY) / n;
+
+      const startY = pts[0].y;
+      const startX = slope * startY + intercept;
+      const endY = pts[n - 1].y;
+      const endX = slope * endY + intercept;
+
+      return { x1: startX, y1: startY, x2: endX, y2: endY };
+    };
 
     if (chartType === "Pie Chart" || chartType === "Donut Chart") {
-      const targetCol = valueCols[0];
       const pieData = chartData.map((item, idx) => ({
         label: item.label,
-        value: item[targetCol] || 0,
+        value: Number(item[yAxisParam]) || 0,
         color: colors[idx % colors.length]
       })).filter(x => x.value > 0);
 
@@ -827,7 +920,7 @@ const MainSection: React.FC<MainSectionProps> = ({
               </svg>
 
               <div className="flex-1 max-h-[300px] overflow-y-auto space-y-2 pr-2 text-xs">
-                <div className="font-bold border-b pb-1 mb-2">Legend: {targetCol}</div>
+                <div className="font-bold border-b pb-1 mb-2">Legend: {yAxisParam}</div>
                 {pieData.map((item, idx) => (
                   <div key={idx} className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded shrink-0" style={{ backgroundColor: item.color }} />
@@ -851,29 +944,29 @@ const MainSection: React.FC<MainSectionProps> = ({
 
       let maxCellVal = 1;
       chartData.forEach(row => {
-        valueCols.forEach(col => {
-          const val = row[col] || 0;
-          if (val > maxCellVal) maxCellVal = val;
-        });
+        const val = Number(row[yAxisParam]) || 0;
+        if (val > maxCellVal) maxCellVal = val;
       });
 
       return (
         <div className="p-4 overflow-x-auto select-none">
-          <svg id="visualization-svg" width={paddingLeft + valueCols.length * cellWidth + 50} height={paddingTop + chartData.length * cellHeight + 65} className="overflow-visible mx-auto">
-            {valueCols.map((col, cIdx) => (
-              <text
-                key={col}
-                x={paddingLeft + cIdx * cellWidth + cellWidth / 2}
-                y={paddingTop - 15}
-                textAnchor="middle"
-                className={`text-[10px] font-bold uppercase ${isDark ? 'fill-white/60' : 'fill-gray-500'}`}
-              >
-                {col.length > 12 ? `${col.slice(0, 10)}..` : col}
-              </text>
-            ))}
+          <svg id="visualization-svg" width={paddingLeft + cellWidth + 50} height={paddingTop + chartData.length * cellHeight + 65} className="overflow-visible mx-auto">
+            <text
+              key={yAxisParam}
+              x={paddingLeft + cellWidth / 2}
+              y={paddingTop - 15}
+              textAnchor="middle"
+              className={`text-[10px] font-bold uppercase ${isDark ? 'fill-white/60' : 'fill-gray-500'}`}
+            >
+              {yAxisParam.length > 12 ? `${yAxisParam.slice(0, 10)}..` : yAxisParam}
+            </text>
 
             {chartData.map((row, rIdx) => {
               const y = paddingTop + rIdx * cellHeight;
+              const val = Number(row[yAxisParam]) || 0;
+              const ratio = Math.max(0.05, Math.min(1, val / maxCellVal));
+              const x = paddingLeft;
+
               return (
                 <g key={rIdx}>
                   <text
@@ -885,38 +978,30 @@ const MainSection: React.FC<MainSectionProps> = ({
                     {row.label.length > 18 ? `${row.label.slice(0, 15)}..` : row.label}
                   </text>
 
-                  {valueCols.map((col, cIdx) => {
-                    const val = row[col] || 0;
-                    const ratio = Math.max(0.05, Math.min(1, val / maxCellVal));
-                    const x = paddingLeft + cIdx * cellWidth;
-
-                    return (
-                      <g key={col}>
-                        <rect
-                          x={x}
-                          y={y}
-                          width={cellWidth - 2}
-                          height={cellHeight - 2}
-                          fill="#EB1165"
-                          style={{ fillOpacity: ratio }}
-                          rx="4"
-                        />
-                        <text
-                          x={x + cellWidth / 2}
-                          y={y + cellHeight / 2 + 4}
-                          textAnchor="middle"
-                          className="text-[10px] font-bold fill-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]"
-                        >
-                          {val.toLocaleString()}
-                        </text>
-                      </g>
-                    );
-                  })}
+                  <g>
+                    <rect
+                      x={x}
+                      y={y}
+                      width={cellWidth - 2}
+                      height={cellHeight - 2}
+                      fill="#EB1165"
+                      style={{ fillOpacity: ratio }}
+                      rx="4"
+                    />
+                    <text
+                      x={x + cellWidth / 2}
+                      y={y + cellHeight / 2 + 4}
+                      textAnchor="middle"
+                      className="text-[10px] font-bold fill-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]"
+                    >
+                      {val.toLocaleString()}
+                    </text>
+                  </g>
                 </g>
               );
             })}
 
-            {/* Y-axis Label (Row labels / records) */}
+            {/* Y-axis Label */}
             <text
               transform={`rotate(-90, 25, ${paddingTop + (chartData.length * cellHeight) / 2})`}
               x={25}
@@ -924,37 +1009,41 @@ const MainSection: React.FC<MainSectionProps> = ({
               textAnchor="middle"
               className={`text-xs font-bold ${isDark ? 'fill-white/60' : 'fill-gray-500'}`}
             >
-              Visualizing {subsetSize} of the {simulatedData.length} records
+              Visualizing {subsetSize} of the {simulatedData.length} records for {yAxisParam ? ` (${yAxisParam})` : ''}
             </text>
 
-            {/* X-axis Label (Parameters) */}
+            {/* X-axis Label */}
             <text
-              x={paddingLeft + (valueCols.length * cellWidth) / 2}
+              x={paddingLeft + cellWidth / 2}
               y={paddingTop + chartData.length * cellHeight + 45}
               textAnchor="middle"
               className={`text-xs font-bold ${isDark ? 'fill-white/60' : 'fill-gray-500'}`}
             >
-              Parameters: {valueCols.join(', ')}
+              Parameter: {yAxisParam}
             </text>
           </svg>
         </div>
       );
     }
 
-    const paddingLeft = chartType === "Bar Chart" ? 140 : 90;
+    const paddingLeft = chartType === "Bar Chart" || chartType === "Stack Bar" ? 140 : 90;
     const paddingRight = 40;
     const paddingTop = 40;
-    const paddingBottom = chartType === "Bar Chart" ? 70 : 75;
+    const paddingBottom = chartType === "Bar Chart" || chartType === "Stack Bar" ? 70 : 75;
     const plotWidth = width - paddingLeft - paddingRight;
     const plotHeight = height - paddingTop - paddingBottom;
 
     let maxVal = 1;
-    chartData.forEach(row => {
-      valueCols.forEach(col => {
-        const val = row[col] || 0;
+    if (chartType === "Stack Bar") {
+      groupedData.forEach(g => {
+        if (g.totalVal > maxVal) maxVal = g.totalVal;
+      });
+    } else {
+      chartData.forEach(row => {
+        const val = Number(row[yAxisParam]) || 0;
         if (val > maxVal) maxVal = val;
       });
-    });
+    }
     maxVal = Math.ceil(maxVal * 1.05);
 
     const step = maxVal / 5;
@@ -962,7 +1051,19 @@ const MainSection: React.FC<MainSectionProps> = ({
 
     if (chartType === "Bar Chart") {
       const barSpacing = plotHeight / chartData.length;
-      const barHeight = Math.max(5, (barSpacing * 0.6) / valueCols.length);
+      const barHeight = Math.max(5, barSpacing * 0.6);
+
+      const pointsForTrend = chartData.map((row, rIdx) => {
+        const val = Number(row[yAxisParam]) || 0;
+        const barWidth = (val / maxVal) * plotWidth;
+        const yRow = paddingTop + rIdx * barSpacing;
+        const barY = yRow + (barSpacing * 0.2);
+        const centerY = barY + barHeight / 2;
+        const screenX = paddingLeft + barWidth;
+        return { x: screenX, y: centerY };
+      });
+      const barTrendLine = getBarTrendLine(pointsForTrend);
+      console.log(barTrendLine)
 
       return (
         <div className="p-4 overflow-y-auto max-h-[550px] custom-scrollbar">
@@ -986,39 +1087,46 @@ const MainSection: React.FC<MainSectionProps> = ({
 
             {chartData.map((row, rIdx) => {
               const yRow = paddingTop + rIdx * barSpacing;
+              const val = Number(row[yAxisParam]) || 0;
+              const barWidth = (val / maxVal) * plotWidth;
+              const barY = yRow + (barSpacing * 0.2);
+              const color = colors[0];
+
               return (
                 <g key={rIdx}>
                   <text x={paddingLeft - 10} y={yRow + barSpacing / 2 + 4} textAnchor="end" className={`text-[10px] font-bold ${isDark ? 'fill-white/80' : 'fill-gray-600'}`}>
                     {row.label.length > 20 ? `${row.label.slice(0, 18)}..` : row.label}
                   </text>
 
-                  {valueCols.map((col, cIdx) => {
-                    const val = row[col] || 0;
-                    const barWidth = (val / maxVal) * plotWidth;
-                    const barY = yRow + (barSpacing * 0.2) + cIdx * barHeight;
-                    const color = colors[cIdx % colors.length];
-
-                    return (
-                      <rect
-                        key={col}
-                        x={paddingLeft}
-                        y={barY}
-                        width={Math.max(1, barWidth)}
-                        height={barHeight}
-                        fill={color}
-                        rx="2"
-                        className="transition-all duration-350 hover:brightness-110"
-                      >
-                        <title>{`${row.label} - ${col}: ${val.toLocaleString()}`}</title>
-                      </rect>
-                    );
-                  })}
+                  <rect
+                    x={paddingLeft}
+                    y={barY}
+                    width={Math.max(1, barWidth)}
+                    height={barHeight}
+                    fill={color}
+                    rx="2"
+                    className="transition-all duration-350 hover:brightness-110"
+                  >
+                    <title>{`${row.label} - ${yAxisParam}: ${val.toLocaleString()}`}</title>
+                  </rect>
                 </g>
               );
             })}
             <line x1={paddingLeft} y1={paddingTop} x2={paddingLeft} y2={paddingTop + plotHeight} stroke={isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.1)"} />
 
-            {/* Y-axis Label (Row labels / records) */}
+            {/* Trend Line for Bar Chart flowing through the end of each bar */}
+            {pointsForTrend.length >= 2 && (
+              <path
+                d={pointsForTrend.reduce((acc, p, idx) => idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`, "")}
+                fill="none"
+                stroke="#3B82F6"
+                strokeWidth="2.5"
+                strokeDasharray="6 4"
+                className="drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]"
+              />
+            )}
+
+            {/* Y-axis Label */}
             <text
               transform={`rotate(-90, 25, ${paddingTop + plotHeight / 2})`}
               x={25}
@@ -1026,24 +1134,138 @@ const MainSection: React.FC<MainSectionProps> = ({
               textAnchor="middle"
               className={`text-xs font-bold ${isDark ? 'fill-white/60' : 'fill-gray-500'}`}
             >
-              Visualizing {subsetSize} of the {simulatedData.length} records
+              Visualizing {subsetSize} of the {simulatedData.length} records for {xAxisParam}
             </text>
 
-            {/* X-axis Label (Parameter name) */}
+            {/* X-axis Label */}
             <text
               x={paddingLeft + plotWidth / 2}
               y={paddingTop + plotHeight + 45}
               textAnchor="middle"
               className={`text-xs font-bold ${isDark ? 'fill-white/60' : 'fill-gray-500'}`}
             >
-              {valueCols.join(', ')}
+              {yAxisParam}
             </text>
           </svg>
         </div>
       );
     }
 
+    if (chartType === "Stack Bar") {
+      const barSpacing = plotHeight / uniqueLabels.length;
+      const barHeight = Math.max(15, barSpacing * 0.55);
+
+      return (
+        <div className="flex flex-col gap-6 p-4">
+          <div className="overflow-y-auto max-h-[550px] custom-scrollbar">
+            <svg id="visualization-svg" className="w-full h-auto overflow-visible select-none" viewBox={`0 0 ${width} ${height}`}>
+              {ticks.map((t, idx) => {
+                const x = paddingLeft + (t / maxVal) * plotWidth;
+                return (
+                  <g key={idx}>
+                    <line x1={x} y1={paddingTop} x2={x} y2={paddingTop + plotHeight} stroke={isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)"} strokeDasharray="4 4" />
+                    {/* Top Tick Label */}
+                    <text x={x} y={paddingTop - 10} textAnchor="middle" className={`text-[10px] font-mono ${isDark ? 'fill-white/40' : 'fill-gray-400'}`}>
+                      {t.toLocaleString()}
+                    </text>
+                    {/* Bottom Tick Label */}
+                    <text x={x} y={paddingTop + plotHeight + 15} textAnchor="middle" className={`text-[10px] font-mono ${isDark ? 'fill-white/40' : 'fill-gray-400'}`}>
+                      {t.toLocaleString()}
+                    </text>
+                  </g>
+                );
+              })}
+
+              {groupedData.map((g, rIdx) => {
+                const yRow = paddingTop + rIdx * barSpacing;
+                const barY = yRow + (barSpacing * 0.22);
+                
+                let currentX = paddingLeft;
+                
+                return (
+                  <g key={rIdx}>
+                    <text x={paddingLeft - 10} y={yRow + barSpacing / 2 + 4} textAnchor="end" className={`text-[10px] font-bold ${isDark ? 'fill-white/80' : 'fill-gray-600'}`}>
+                      {g.label.length > 20 ? `${g.label.slice(0, 18)}..` : g.label}
+                    </text>
+
+                    {stackCategories.map((cat, catIdx) => {
+                      const val = g.segments[cat] || 0;
+                      if (val <= 0) return null;
+                      const segmentWidth = (val / maxVal) * plotWidth;
+                      const color = colors[catIdx % colors.length];
+                      const startX = currentX;
+                      currentX += segmentWidth;
+
+                      return (
+                        <rect
+                          key={catIdx}
+                          x={startX}
+                          y={barY}
+                          width={Math.max(1, segmentWidth)}
+                          height={barHeight}
+                          fill={color}
+                          rx="2"
+                          className="transition-all duration-350 hover:brightness-110"
+                        >
+                          <title>{`${g.label} - ${cat}: ${val.toLocaleString()}`}</title>
+                        </rect>
+                      );
+                    })}
+                  </g>
+                );
+              })}
+              <line x1={paddingLeft} y1={paddingTop} x2={paddingLeft} y2={paddingTop + plotHeight} stroke={isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.1)"} />
+
+              {/* Y-axis Label */}
+              <text
+                transform={`rotate(-90, 25, ${paddingTop + plotHeight / 2})`}
+                x={25}
+                y={paddingTop + plotHeight / 2}
+                textAnchor="middle"
+                className={`text-xs font-bold ${isDark ? 'fill-white/60' : 'fill-gray-500'}`}
+              >
+                Visualizing {subsetSize} of the {simulatedData.length} records for {xAxisParam}
+              </text>
+
+              {/* X-axis Label */}
+              <text
+                x={paddingLeft + plotWidth / 2}
+                y={paddingTop + plotHeight + 45}
+                textAnchor="middle"
+                className={`text-xs font-bold ${isDark ? 'fill-white/60' : 'fill-gray-500'}`}
+              >
+                {yAxisParam}
+              </text>
+            </svg>
+          </div>
+
+          {/* Legend */}
+          {stackKey && (
+            <div className={`p-4 rounded-2xl border flex flex-wrap gap-x-6 gap-y-3 text-xs ${isDark ? 'bg-white/5 border-white/5' : 'bg-gray-50 border-gray-150'}`}>
+              <div className={`font-bold w-full border-b pb-1.5 ${isDark ? 'text-white border-white/10' : 'text-gray-700 border-gray-200'}`}>Legend (stacked by {stackKey}):</div>
+              {stackCategories.map((cat, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <div className="w-3.5 h-3.5 rounded shrink-0" style={{ backgroundColor: colors[idx % colors.length] }} />
+                  <span className={`font-semibold ${isDark ? 'text-white/80' : 'text-gray-700'}`}>{cat}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     const columnWidth = plotWidth / chartData.length;
+
+    // Compute points for trend line in non-bar charts
+    const trendPoints = chartData.map((row, rIdx) => {
+      const val = Number(row[yAxisParam]) || 0;
+      const x = paddingLeft + rIdx * columnWidth + columnWidth / 2;
+      const y = paddingTop + plotHeight - (val / maxVal) * plotHeight;
+      return { x, y };
+    });
+    const trend = getTrendLine(trendPoints);
+    console.log(trend)
 
     return (
       <div className="p-4">
@@ -1062,7 +1284,7 @@ const MainSection: React.FC<MainSectionProps> = ({
 
           {chartData.map((row, idx) => {
             const totalLabels = chartData.length;
-            const labelInterval = Math.max(1, Math.ceil(totalLabels / 25)); // Skip labels if there are too many (limit to max ~25 labels)
+            const labelInterval = Math.max(1, Math.ceil(totalLabels / 25));
             const shouldShowLabel = idx % labelInterval === 0;
 
             if (!shouldShowLabel) return null;
@@ -1084,52 +1306,38 @@ const MainSection: React.FC<MainSectionProps> = ({
 
           {chartType === "Column Chart" && chartData.map((row, rIdx) => {
             const xRow = paddingLeft + rIdx * columnWidth;
-            const barWidth = Math.max(4, (columnWidth * 0.6) / valueCols.length);
+            const barWidth = Math.max(4, columnWidth * 0.6);
+            const val = Number(row[yAxisParam]) || 0;
+            const barHeight = (val / maxVal) * plotHeight;
+            const xBar = xRow + columnWidth * 0.2;
+            const color = colors[0];
 
             return (
-              <g key={rIdx}>
-                {valueCols.map((col, cIdx) => {
-                  const val = row[col] || 0;
-                  const barHeight = (val / maxVal) * plotHeight;
-                  const xBar = xRow + (columnWidth * 0.2) + cIdx * barWidth;
-                  const color = colors[cIdx % colors.length];
-
-                  return (
-                    <rect
-                      key={col}
-                      x={xBar}
-                      y={paddingTop + plotHeight - barHeight}
-                      width={barWidth}
-                      height={Math.max(1, barHeight)}
-                      fill={color}
-                      rx="2"
-                      className="transition-all duration-350 hover:brightness-110"
-                    >
-                      <title>{`${row.label} - ${col}: ${val.toLocaleString()}`}</title>
-                    </rect>
-                  );
-                })}
-              </g>
+              <rect
+                key={rIdx}
+                x={xBar}
+                y={paddingTop + plotHeight - barHeight}
+                width={barWidth}
+                height={Math.max(1, barHeight)}
+                fill={color}
+                rx="2"
+                className="transition-all duration-350 hover:brightness-110"
+              >
+                <title>{`${row.label} - ${yAxisParam}: ${val.toLocaleString()}`}</title>
+              </rect>
             );
           })}
 
-          {chartType === "Line Graph" && valueCols.map((col, cIdx) => {
-            const color = colors[cIdx % colors.length];
-            const points = chartData.map((row, rIdx) => {
-              const val = row[col] || 0;
-              const x = paddingLeft + rIdx * columnWidth + columnWidth / 2;
-              const y = paddingTop + plotHeight - (val / maxVal) * plotHeight;
-              return { x, y, val, label: row.label };
-            });
-
-            const pathD = points.reduce((acc, p, idx) =>
+          {chartType === "Line Graph" && (() => {
+            const color = colors[0];
+            const pathD = trendPoints.reduce((acc, p, idx) =>
               idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`
               , "");
 
             return (
-              <g key={col}>
+              <g>
                 <path d={pathD} fill="none" stroke={color} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
-                {points.map((p, idx) => (
+                {trendPoints.map((p, idx) => (
                   <circle
                     key={idx}
                     cx={p.x}
@@ -1140,42 +1348,59 @@ const MainSection: React.FC<MainSectionProps> = ({
                     strokeWidth="2"
                     className="cursor-pointer transition-transform duration-200 hover:scale-150"
                   >
-                    <title>{`${p.label} - ${col}: ${p.val.toLocaleString()}`}</title>
+                    <title>{`${chartData[idx].label} - ${yAxisParam}: ${chartData[idx][yAxisParam].toLocaleString()}`}</title>
                   </circle>
                 ))}
               </g>
             );
-          })}
+          })()}
 
-          {chartType === "Scatter Plots" && valueCols.map((col, cIdx) => {
-            const color = colors[cIdx % colors.length];
-            return (
-              <g key={col}>
-                {chartData.map((row, rIdx) => {
-                  const val = row[col] || 0;
-                  const x = paddingLeft + rIdx * columnWidth + columnWidth / 2;
-                  const y = paddingTop + plotHeight - (val / maxVal) * plotHeight;
-
-                  return (
-                    <circle
-                      key={rIdx}
-                      cx={x}
-                      cy={y}
-                      r="6.5"
-                      fill={color}
-                      opacity="0.85"
-                      className="cursor-pointer transition-transform duration-200 hover:scale-150"
-                    >
-                      <title>{`${row.label} - ${col}: ${val.toLocaleString()}`}</title>
-                    </circle>
-                  );
-                })}
-              </g>
-            );
-          })}
+          {chartType === "Scatter Plots" && (
+            <g>
+              {trendPoints.map((p, rIdx) => (
+                <circle
+                  key={rIdx}
+                  cx={p.x}
+                  cy={p.y}
+                  r="6.5"
+                  fill={colors[0]}
+                  opacity="0.85"
+                  className="cursor-pointer transition-transform duration-200 hover:scale-150"
+                >
+                  <title>{`${chartData[rIdx].label} - ${yAxisParam}: ${chartData[rIdx][yAxisParam].toLocaleString()}`}</title>
+                </circle>
+              ))}
+            </g>
+          )}
           <line x1={paddingLeft} y1={paddingTop + plotHeight} x2={paddingLeft + plotWidth} y2={paddingTop + plotHeight} stroke={isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.1)"} />
 
-          {/* Y-axis Label (Parameter name) */}
+          {/* Trend Line for Line Graph 
+          {trend && chartType === "Line Graph" && (
+            <line
+              x1={trend.x1}
+              y1={trend.y1}
+              x2={trend.x2}
+              y2={trend.y2}
+              stroke="#3B82F6"
+              strokeWidth="2.5"
+              strokeDasharray="6 4"
+              className="drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]"
+            />
+          )}*/}
+
+          {/* Trend Line flowing through points for Column Chart and Scatter Plots */}
+          {(chartType === "Column Chart" || chartType === "Scatter Plots") && trendPoints.length >= 2 && (
+            <path
+              d={trendPoints.reduce((acc, p, idx) => idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`, "")}
+              fill="none"
+              stroke="#3B82F6"
+              strokeWidth="2.5"
+              strokeDasharray="6 4"
+              className="drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]"
+            />
+          )}
+
+          {/* Y-axis Label */}
           <text
             transform={`rotate(-90, 25, ${paddingTop + plotHeight / 2})`}
             x={25}
@@ -1183,17 +1408,17 @@ const MainSection: React.FC<MainSectionProps> = ({
             textAnchor="middle"
             className={`text-xs font-bold ${isDark ? 'fill-white/60' : 'fill-gray-500'}`}
           >
-            {valueCols.join(', ')}
+            {yAxisParam}
           </text>
 
-          {/* X-axis Label (Row labels / records) */}
+          {/* X-axis Label */}
           <text
             x={paddingLeft + plotWidth / 2}
             y={paddingTop + plotHeight + 52}
             textAnchor="middle"
             className={`text-xs font-bold ${isDark ? 'fill-white/60' : 'fill-gray-500'}`}
           >
-            Visualizing {subsetSize} of the {simulatedData.length} records
+            Visualizing {subsetSize} of the {simulatedData.length} records for {xAxisParam}
           </text>
         </svg>
       </div>
@@ -1988,7 +2213,7 @@ const MainSection: React.FC<MainSectionProps> = ({
                   <Activity className="w-4 h-4 text-white" /> Visualization Panel
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   {/* Select Type Dropdown */}
                   <div className="flex flex-col gap-1.5">
                     <label className={`text-xs font-semibold text-white/60`}>
@@ -2001,7 +2226,7 @@ const MainSection: React.FC<MainSectionProps> = ({
                         ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
                         : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'}`}
                     >
-                      {["Bar Chart", "Column Chart", "Line Graph", "Pie Chart", "Donut Chart", "Heat Maps", "Scatter Plots"].map(type => (
+                      {["Bar Chart", "Column Chart", "Stack Bar", "Line Graph", "Pie Chart", "Donut Chart", "Heat Maps", "Scatter Plots"].map(type => (
                         <option key={type} value={type} className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
                           {type}
                         </option>
@@ -2009,14 +2234,26 @@ const MainSection: React.FC<MainSectionProps> = ({
                     </select>
                   </div>
 
-                  {/* Select Parameters Dropdown */}
+                  {/* Select x-axis Parameter Dropdown */}
                   <div className="relative">
                     <CustomDropdown
-                      label="Select Parameter"
+                      label="Select x-axis Parameter"
                       options={displayedColumns}
-                      value={selectedParams[0] || 'Choose parameter...'}
+                      value={xAxisParam || 'Choose parameter...'}
                       onChange={(val) => {
-                        setSelectedParams(val ? [val] : []);
+                        setXAxisParam(val || '');
+                      }}
+                    />
+                  </div>
+
+                  {/* Select y-axis Parameter Dropdown */}
+                  <div className="relative">
+                    <CustomDropdown
+                      label="Select y-axis Parameter"
+                      options={displayedColumns}
+                      value={yAxisParam || 'Choose parameter...'}
+                      onChange={(val) => {
+                        setYAxisParam(val || '');
                       }}
                     />
                   </div>
@@ -2031,7 +2268,19 @@ const MainSection: React.FC<MainSectionProps> = ({
                       min="1"
                       max={simulatedData.length || 100}
                       value={subsetSize}
-                      onChange={(e) => setSubsetSize(Math.max(1, parseInt(e.target.value) || 10))}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        if (isNaN(val)) {
+                          setSubsetSize(0);
+                        } else {
+                          const maxLimit = simulatedData.length;
+                          if (maxLimit === 0) {
+                            setSubsetSize(0);
+                          } else {
+                            setSubsetSize(Math.max(1, Math.min(val, maxLimit)));
+                          }
+                        }
+                      }}
                       className={`px-3.5 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 transition-all ${isDark
                         ? 'bg-white/10 border border-white/10 text-white placeholder-white/30 focus:ring-axis-red/30'
                         : 'bg-white border border-gray-200 text-gray-700 placeholder-gray-400 focus:ring-axis-burgundy/20'}`}
@@ -2047,7 +2296,7 @@ const MainSection: React.FC<MainSectionProps> = ({
                     <span className="text-[10px] font-bold uppercase tracking-widest opacity-50 text-left">
                       Visualization Output: {chartType}
                     </span>
-                    {selectedParams.length > 0 && (
+                    {xAxisParam && yAxisParam && (
                       <div className="flex items-center gap-1">
                         <button
                           onClick={handleDownloadSVG}

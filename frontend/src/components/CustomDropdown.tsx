@@ -33,7 +33,7 @@ const CustomDropdown: React.FC<CustomDropdownProps> = ({
 
   return (
     <div className="space-y-2" ref={containerRef}>
-      <label className={`text-xs font-semibold tracking-wider flex items-center gap-2 ${(label == 'Select Parameter') ? ('text-white/50') : (isDark ? 'text-white/50 uppercase' : 'text-gray-500 uppercase')}`}>
+      <label className={`text-xs font-semibold tracking-wider flex items-center gap-2 ${label.includes('Parameter') ? 'text-white/50' : (isDark ? 'text-white/50 uppercase' : 'text-gray-500 uppercase')}`}>
         {icon} {label}
       </label>
 
