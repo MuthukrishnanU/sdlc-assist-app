@@ -311,3 +311,17 @@ On click of "Approve Github Push" - A table must display all the entries in "pus
 If admin click on "Approve" button - Save the entire entry in "pushAllDetails" and remove the entry from "pushAllDetailsTemp" collection and display an alert with appropriate message.
 Please confirm if this is possible (we need to store large code & output table files in MongoDB collection).
 Provide me with an implementation plan.
+
+ToDo10Jun26:
+I want an enhancement in "Approve GitHub Push" table to view DQ Insghts.
+
+Basically, I have added a new button in "AdminDashboard.tsx" called - "View DQ Insights".
+On click of this button, open a modal/popup and display the Tablewise Column DQ Insights for the selected push request.
+
+Please refer to the attached screenshot - which shows the backend response of "/pending-github-pushes" API endpoint.
+Use the "DQ Insights" property of this backend response to display the tablewise + columnwise DQ Insights in the modal/popup.
+Example: In the attached screenshot, we have 3 tables (Output Table, customerDetails and loanInfo).
+For each of these tables, we have many columns & their subsequent DQ Insights.
+In the modal/popup, Display separate sections/cards for each of these tables & for each table section, display the DQ Insights in tabular format (with every row depicting the columns & its DQ Insights details).
+
+Please confirm if this is possible. Provide me with an implementation plan.

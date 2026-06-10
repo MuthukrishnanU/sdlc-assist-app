@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database, UserCheck, ArrowLeft, LogOut, Eye, Check, X, Shield, Clock, Sun, Moon, GitPullRequest, Code, Table } from 'lucide-react';
+import { Database, UserCheck, ArrowLeft, LogOut, Eye, Check, X, Shield, Clock, Sun, Moon, GitPullRequest, Code, Table, BarChart3 } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import axios from 'axios';
 
@@ -31,6 +31,7 @@ interface PendingPushApproval {
   projectName: string;
   codeOutput?: string;
   outputTableData?: any[];
+  "DQ Insights"?: any;
 }
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout, apiBaseUrl }) => {
@@ -50,6 +51,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout, apiBase
   // View modals for push requests
   const [viewingCodeRequest, setViewingCodeRequest] = React.useState<PendingPushApproval | null>(null);
   const [viewingTableRequest, setViewingTableRequest] = React.useState<PendingPushApproval | null>(null);
+  const [viewingDqInsights, setViewingDqInsights] = React.useState<PendingPushApproval | null>(null);
 
   // Semantic layer modal
   const [semanticModalOpen, setSemanticModalOpen] = React.useState(false);
@@ -581,6 +583,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout, apiBase
                                 <Table className="w-3.5 h-3.5" /> View Table
                               </button>
                               <button
+                                onClick={() => setViewingDqInsights(push)}
+                                className="p-1.5 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors flex items-center gap-1 font-bold text-[10px] uppercase border border-black shadow-sm"
+                                title="View Tablewise Column DQ Insights"
+                              >
+                                <BarChart3 className="w-3.5 h-3.5" /> View DQ Insights
+                              </button>
+                              <button
                                 onClick={() => handleApprovePush(push._id)}
                                 className="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 transition-colors flex items-center gap-1 font-bold text-[10px] uppercase border border-emerald-500/25"
                               >
@@ -808,6 +817,102 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout, apiBase
               <button
                 type="button"
                 onClick={() => setViewingTableRequest(null)}
+                className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-axis-red hover:brightness-110 transition-all shadow-md"
+              >
+                Close View
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DQ Insights Modal Popup */}
+      {viewingDqInsights && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className={`w-full max-w-4xl rounded-3xl p-6 shadow-2xl relative border ${isDark ? 'bg-axis-burgundy-dark text-white border-white/10' : 'bg-white text-gray-800 border-gray-200'} flex flex-col max-h-[85vh]`}>
+            <button
+              type="button"
+              onClick={() => setViewingDqInsights(null)}
+              className={`absolute top-4 right-4 p-1.5 rounded-lg hover:bg-black/10 transition-colors ${isDark ? 'text-white/60 hover:text-white' : 'text-gray-400 hover:text-gray-600'}`}
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className={`text-lg font-bold flex items-center gap-2 mb-1 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`}>
+              <BarChart3 className="w-5 h-5 text-axis-red" /> Data Quality (DQ) Insights
+            </h3>
+            <p className="text-sm opacity-60 mb-4 tracking-wider font-semibold">
+              Push request by: {viewingDqInsights.userId} ({viewingDqInsights.role})
+            </p>
+
+            <div className="flex-grow overflow-y-auto space-y-6 custom-scrollbar pr-2 max-h-[60vh]">
+              {(() => {
+                const dqInsights = viewingDqInsights["DQ Insights"];
+                if (!dqInsights || Object.keys(dqInsights).length === 0) {
+                  return (
+                    <div className="p-8 text-center text-xs opacity-50">
+                      No DQ Insights data available in this push.
+                    </div>
+                  );
+                }
+
+                return Object.entries(dqInsights).map(([tableName, columnsData]) => {
+                  const data = columnsData as Record<string, any>;
+                  return (
+                    <div key={tableName} className={`p-5 rounded-2xl border ${isDark ? 'bg-white/5 border-white/10' : 'bg-gray-55 border-gray-150'} space-y-3`}>
+                      <h4 className={`text-sm font-bold flex items-center gap-2 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`}>
+                        <Table className="w-4.5 h-4.5 text-axis-red" /> {tableName}
+                      </h4>
+                      <div className="overflow-x-auto border dark:border-white/10 rounded-xl">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead>
+                            <tr className={`border-b dark:border-white/10 font-bold uppercase tracking-wider ${isDark ? 'bg-white/5 text-white/60' : 'bg-gray-100 text-gray-500'}`}>
+                              <th className="px-4 py-2.5">Column Name</th>
+                              <th className="px-4 py-2.5 text-right">Row Count</th>
+                              <th className="px-4 py-2.5 text-right">Null Values</th>
+                              <th className="px-4 py-2.5 text-right">Empty Strings</th>
+                              <th className="px-4 py-2.5 text-right">Distinct Values</th>
+                              <th className="px-4 py-2.5 text-right">Duplicate Rows</th>
+                              <th className="px-4 py-2.5 text-right">Minimum</th>
+                              <th className="px-4 py-2.5 text-right">Maximum</th>
+                              <th className="px-4 py-2.5 text-right">Average</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y dark:divide-white/10">
+                            {Object.entries(data).map(([colName, metrics]: [string, any]) => (
+                              <tr key={colName} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                                <td className="px-4 py-2.5 font-mono font-bold text-axis-red">{colName}</td>
+                                <td className="px-4 py-2.5 text-right font-mono">{metrics.row_count ?? '-'}</td>
+                                <td className={`px-4 py-2.5 text-right font-mono ${metrics.null_values > 0 ? 'text-amber-500 font-bold' : ''}`}>
+                                  {metrics.null_values ?? '-'}
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-mono">{metrics.empty_strings ?? '-'}</td>
+                                <td className="px-4 py-2.5 text-right font-mono">{metrics.distinct_values ?? '-'}</td>
+                                <td className="px-4 py-2.5 text-right font-mono">{metrics.duplicate_rows ?? '-'}</td>
+                                <td className="px-4 py-2.5 text-right font-mono">
+                                  {metrics.minimum !== null && metrics.minimum !== undefined ? String(metrics.minimum) : '-'}
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-mono">
+                                  {metrics.maximum !== null && metrics.maximum !== undefined ? String(metrics.maximum) : '-'}
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-mono">
+                                  {metrics.average !== null && metrics.average !== undefined ? String(metrics.average) : '-'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+
+            <div className="flex justify-end pt-4 shrink-0 border-t dark:border-white/10 mt-4">
+              <button
+                type="button"
+                onClick={() => setViewingDqInsights(null)}
                 className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-axis-red hover:brightness-110 transition-all shadow-md"
               >
                 Close View
