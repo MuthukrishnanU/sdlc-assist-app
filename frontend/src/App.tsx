@@ -3,9 +3,10 @@ import axios from 'axios';
 import { ThemeProvider } from './ThemeContext';
 import InputSection from './components/InputSection';
 import MainSection from './components/MainSection';
-import LoginPage from './components/LoginPage';
-import CreateTablePage from './components/CreateTablePage';
-import AdminDashboard from './components/AdminDashboard';
+import LoginPage from './pages/Login';
+import CreateTablePage from './pages/CreateTable';
+import AdminDashboard from './pages/AdminDashboard';
+import AddNewPiiDataPage from './pages/AddNewPiiData';
 
 const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? 'http://localhost:8000'
@@ -19,7 +20,7 @@ function App() {
   const [lastFormData, setLastFormData] = React.useState<any | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [generationTokens, setGenerationTokens] = React.useState<{ prompt_tokens: number, completion_tokens: number } | null>(null);
-  const [currentPage, setCurrentPage] = React.useState<'main' | 'create-table'>('main');
+  const [currentPage, setCurrentPage] = React.useState<'main' | 'create-table' | 'add-new-pii'>('main');
   const [activeTab, setActiveTab] = React.useState<'sdlc' | 'cbi'>('sdlc');
 
   React.useEffect(() => {
@@ -117,11 +118,21 @@ function App() {
   return (
     <ThemeProvider>
       {user.userId === 'admin' ? (
-        <AdminDashboard
-          user={user}
-          onLogout={handleLogout}
-          apiBaseUrl={API_BASE_URL}
-        />
+        currentPage === 'add-new-pii' ? (
+          <AddNewPiiDataPage
+            user={user}
+            onBack={() => setCurrentPage('main')}
+            apiBaseUrl={API_BASE_URL}
+            onLogout={handleLogout}
+          />
+        ) : (
+          <AdminDashboard
+            user={user}
+            onLogout={handleLogout}
+            apiBaseUrl={API_BASE_URL}
+            onNavigateToPii={() => setCurrentPage('add-new-pii')}
+          />
+        )
       ) : currentPage === 'create-table' ? (
         <CreateTablePage
           user={user}

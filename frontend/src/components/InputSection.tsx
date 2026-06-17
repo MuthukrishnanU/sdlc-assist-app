@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database, Code2, Layers, Type, Hash, Play, Cpu, AlertCircle, X } from 'lucide-react';
+import { Database, Code2, Layers, Type, Hash, Play, /*Cpu,*/ AlertCircle, X, CheckCircle2, Info, Upload } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import axios from 'axios';
 import MultiSelect from './MultiSelect';
@@ -39,6 +39,12 @@ const InputSection: React.FC<InputSectionProps> = ({
     model: 'gpt-4o'
   });
 
+  // Convert Code State
+  const [isConvertCodeEnabled, setIsConvertCodeEnabled] = React.useState(false);
+  const [legacyFile, setLegacyFile] = React.useState<File | null>(null);
+  const [legacyOutputFormat, setLegacyOutputFormat] = React.useState('PySpark');
+  const [isParsingFile, setIsParsingFile] = React.useState(false);
+
   // CBI State
   const [cbiMetadata, setCbiMetadata] = React.useState<Record<string, { domain: string; columns: string[] }>>({});
   const [cbiFormData, setCbiFormData] = React.useState({
@@ -54,10 +60,47 @@ const InputSection: React.FC<InputSectionProps> = ({
   const [estimateData, setEstimateData] = React.useState<any>(null);
   const [estimateLoading, setEstimateLoading] = React.useState(false);
 
+  // Input Guardrails State
+  const [inputGuardrails, setInputGuardrails] = React.useState<{
+    passed: boolean;
+    error: string | null;
+    checked: Array<{ name: string; status: 'Passed' | 'Failed'; message?: string }>;
+  } | null>(null);
+  const [showSuccess, setShowSuccess] = React.useState(false);
+  const [isInputGuardrailsModalOpen, setIsInputGuardrailsModalOpen] = React.useState(false);
+
+  // Reset input guardrails state when SDLC input changes (so that a previous validation error doesn't lock the button)
+  React.useEffect(() => {
+    setInputGuardrails(null);
+    setShowSuccess(false);
+  }, [formData.logic, formData.tables, formData.columns, formData.format, formData.sample_data_size, formData.model, isConvertCodeEnabled, legacyOutputFormat]);
+
+  // Reset input guardrails state when CBI input changes
+  React.useEffect(() => {
+    setInputGuardrails(null);
+    setShowSuccess(false);
+  }, [cbiFormData.query, cbiFormData.tables, cbiFormData.columns, cbiFormData.domains, cbiFormData.model]);
+
+  // Reset input guardrails state when activeTab changes
+  React.useEffect(() => {
+    setInputGuardrails(null);
+    setShowSuccess(false);
+    setIsInputGuardrailsModalOpen(false);
+  }, [activeTab]);
+
   const handleConfirmGenerate = () => {
     setIsEstimateModalOpen(false);
     if (activeTab === 'sdlc') {
-      onGenerate(formData);
+      if (isConvertCodeEnabled) {
+        onGenerate({
+          ...formData,
+          format: legacyOutputFormat,
+          is_conversion: true,
+          active_tab: 'sdlc'
+        });
+      } else {
+        onGenerate({ ...formData, active_tab: 'sdlc' });
+      }
     } else {
       onGenerate({
         format: 'SQL',
@@ -66,7 +109,8 @@ const InputSection: React.FC<InputSectionProps> = ({
         logic: cbiFormData.query,
         sample_data_size: cbiFormData.sample_data_size || 1000,
         model: cbiFormData.model,
-        domains: cbiFormData.domains
+        domains: cbiFormData.domains,
+        active_tab: 'cbi'
       });
     }
   };
@@ -114,14 +158,14 @@ const InputSection: React.FC<InputSectionProps> = ({
     console.log(availableCbiColumns);
   }, [apiBaseUrl, user.role]);
 
-  const formats = ['PySpark', 'SparkSQL', 'SQL', 'PL/SQL', 'Apache Iceberg', 'MongoDB NoSQL', 'Firestore NoSQL', 'BigQuery SQL', 'Snowflake SQL', 'Oracle SQL', 'PostgreSQL', 'MySQL'];
+  const formats = ['PySpark', 'SparkSQL', 'SQL', 'PL/SQL', /*'Apache Iceberg',*/ 'MongoDB NoSQL', /*'Firestore NoSQL', 'BigQuery SQL', 'Snowflake SQL', 'Oracle SQL', 'PostgreSQL', 'MySQL'*/];
   const availableTables = Object.keys(dbMetadata);
   const availableColumns = React.useMemo(() => {
     return Array.from(new Set(formData.tables.flatMap(table => dbMetadata[table] || [])));
   }, [formData.tables, dbMetadata]);
 
   const sampleSizes = [100, 250, 500, 1000];
-  const models = ['gpt-4o', 'gemini-3.5-flash', 'mistral', 'llama', 'kimi'];
+  //const models = ['gpt-4o', 'gemini-3.5-flash', 'mistral', 'llama', 'kimi'];
 
   // CBI dynamic dropdown mapping
   const availableCbiDomains = user.domain || [];
@@ -139,24 +183,158 @@ const InputSection: React.FC<InputSectionProps> = ({
     return Array.from(new Set(cols));
   }, [cbiMetadata, cbiFormData.tables]);
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLegacyFile(file);
+    setIsParsingFile(true);
+
+    const uploadFormData = new FormData();
+    uploadFormData.append('file', file);
+
+    try {
+      const response = await axios.post(`${apiBaseUrl}/generate/parse-legacy`, uploadFormData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      setFormData(prev => ({
+        ...prev,
+        logic: response.data.legacy_code,
+        tables: response.data.detected_tables || [],
+        columns: response.data.detected_columns || []
+      }));
+    } catch (err: any) {
+      console.error('Failed to parse legacy file:', err);
+      alert(err.response?.data?.detail || 'Failed to parse legacy file.');
+      setLegacyFile(null);
+    } finally {
+      setIsParsingFile(false);
+    }
+  };
+
+  const handleConvertSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.logic.trim()) {
+      alert("Please upload a legacy code file first.");
+      return;
+    }
+
+    setEstimateLoading(true);
+    try {
+      const valResponse = await axios.post(`${apiBaseUrl}/generate/validate-input`, {
+        ...formData,
+        format: legacyOutputFormat,
+        is_conversion: true,
+        role: user.role,
+        userId: user.userId,
+        active_tab: 'sdlc'
+      });
+
+      setInputGuardrails(valResponse.data);
+
+      if (!valResponse.data.passed) {
+        setShowSuccess(false);
+        setEstimateLoading(false);
+        return;
+      }
+
+      setShowSuccess(true);
+
+      const response = await axios.post(`${apiBaseUrl}/generate/estimate`, {
+        ...formData,
+        format: legacyOutputFormat,
+        is_conversion: true,
+        role: user.role,
+        userId: user.userId,
+        active_tab: 'sdlc'
+      });
+      setEstimateData(response.data);
+      setIsEstimateModalOpen(true);
+    } catch (err: any) {
+      console.error('Error during validation or estimation:', err);
+      const errMsg = err.response?.data?.detail || 'Failed to process request.';
+      alert(errMsg);
+    } finally {
+      setEstimateLoading(false);
+    }
+  };
+
+  const handleToggleConvertCode = (checked: boolean) => {
+    setIsConvertCodeEnabled(checked);
+    setLegacyFile(null);
+    setFormData(prev => ({
+      ...prev,
+      logic: '',
+      tables: [],
+      columns: []
+    }));
+  };
+
+  const handleMockUploadForTesting = () => {
+    setLegacyFile(new File([''], 'legacy_sample.xml', { type: 'text/xml' }));
+    setFormData(prev => ({
+      ...prev,
+      logic: `<Mapping name="ConvertCustomerTransactions">
+  <Source name="customerDetails">
+    <Field name="customer_id" type="string" />
+    <Field name="kyc_status" type="string" />
+  </Source>
+  <Source name="transactionsInfo">
+    <Field name="customer_id" type="string" />
+    <Field name="amount" type="double" />
+    <Field name="channel" type="string" />
+  </Source>
+  <Transformation type="Joiner">
+    <JoinCondition>customerDetails.customer_id = transactionsInfo.customer_id</JoinCondition>
+  </Transformation>
+  <Transformation type="Filter">
+    <FilterCondition>transactionsInfo.channel = 'UPI' AND customerDetails.kyc_status = 'Verified'</FilterCondition>
+  </Transformation>
+</Mapping>`,
+      tables: ['customerDetails', 'transactionsInfo'],
+      columns: ['customer_id', 'kyc_status', 'channel', 'amount']
+    }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.logic.trim()) {
       alert("Please describe your query requirements in the logic section.");
       return;
     }
+
     setEstimateLoading(true);
     try {
+      // Validate input guardrails first
+      const valResponse = await axios.post(`${apiBaseUrl}/generate/validate-input`, {
+        ...formData,
+        role: user.role,
+        userId: user.userId,
+        active_tab: 'sdlc'
+      });
+
+      setInputGuardrails(valResponse.data);
+
+      if (!valResponse.data.passed) {
+        setShowSuccess(false);
+        setEstimateLoading(false);
+        return;
+      }
+
+      setShowSuccess(true);
+
       const response = await axios.post(`${apiBaseUrl}/generate/estimate`, {
         ...formData,
         role: user.role,
-        userId: user.userId
+        userId: user.userId,
+        active_tab: 'sdlc'
       });
       setEstimateData(response.data);
       setIsEstimateModalOpen(true);
     } catch (err: any) {
-      console.error('Failed to get token estimate:', err);
-      const errMsg = err.response?.data?.detail || 'Failed to estimate token usage.';
+      console.error('Error during validation or estimation:', err);
+      const errMsg = err.response?.data?.detail || 'Failed to process request.';
       alert(errMsg);
     } finally {
       setEstimateLoading(false);
@@ -173,8 +351,33 @@ const InputSection: React.FC<InputSectionProps> = ({
       alert("Please describe your query requirements in the query section.");
       return;
     }
+
     setEstimateLoading(true);
     try {
+      // Validate input guardrails first
+      const valResponse = await axios.post(`${apiBaseUrl}/generate/validate-input`, {
+        format: 'SQL',
+        tables: cbiFormData.tables,
+        columns: cbiFormData.columns,
+        logic: cbiFormData.query,
+        sample_data_size: cbiFormData.sample_data_size || 1000,
+        model: cbiFormData.model,
+        domains: cbiFormData.domains,
+        role: user.role,
+        userId: user.userId,
+        active_tab: 'cbi'
+      });
+
+      setInputGuardrails(valResponse.data);
+
+      if (!valResponse.data.passed) {
+        setShowSuccess(false);
+        setEstimateLoading(false);
+        return;
+      }
+
+      setShowSuccess(true);
+
       const response = await axios.post(`${apiBaseUrl}/generate/estimate`, {
         format: 'SQL',
         tables: cbiFormData.tables,
@@ -184,13 +387,14 @@ const InputSection: React.FC<InputSectionProps> = ({
         model: cbiFormData.model,
         domains: cbiFormData.domains,
         role: user.role,
-        userId: user.userId
+        userId: user.userId,
+        active_tab: 'cbi'
       });
       setEstimateData(response.data);
       setIsEstimateModalOpen(true);
     } catch (err: any) {
-      console.error('Failed to get token estimate:', err);
-      const errMsg = err.response?.data?.detail || 'Failed to estimate token usage.';
+      console.error('Error during validation or estimation:', err);
+      const errMsg = err.response?.data?.detail || 'Failed to process request.';
       alert(errMsg);
     } finally {
       setEstimateLoading(false);
@@ -269,108 +473,268 @@ const InputSection: React.FC<InputSectionProps> = ({
       </div>
 
       {activeTab === 'sdlc' ? (
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Select Format */}
-          <CustomDropdown
-            label="Select Format"
-            options={formats}
-            value={formData.format}
-            onChange={(val) => setFormData({ ...formData, format: val })}
-            icon={<Layers className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}
-          />
-
-          {/* Select Tables */}
-          <MultiSelect
-            label="Select Tables"
-            options={availableTables}
-            selected={formData.tables}
-            onChange={(selected) => {
-              const newAvailableColumns = Array.from(
-                new Set(selected.flatMap(table => dbMetadata[table] || []))
-              );
-              const filteredColumns = formData.columns.filter(col => newAvailableColumns.includes(col));
-              setFormData({
-                ...formData,
-                tables: selected,
-                columns: filteredColumns
-              });
-            }}
-            placeholder="Choose tables..."
-            icon={<Database className="w-3 h-3" />}
-            actionLink={
-              <button
-                type="button"
-                onClick={onCreateNewTable}
-                className={`text-xs font-bold underline tracking-wider transition-colors hover:opacity-80 focus:outline-none ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'
-                  }`}
-              >
-                (+) Metastore
-              </button>
-            }
-          />
-
-          {/* Select Columns */}
-          <MultiSelect
-            label="Select Columns"
-            options={availableColumns}
-            selected={formData.columns}
-            onChange={(selected) => setFormData({ ...formData, columns: selected })}
-            placeholder="Choose columns..."
-            icon={<Type className="w-3 h-3" />}
-          />
-
-          {/* Sample Data Size */}
-          <CustomDropdown
-            label="Sample Data Size"
-            options={sampleSizes}
-            value={formData.sample_data_size}
-            onChange={(val) => setFormData({ ...formData, sample_data_size: Number(val) })}
-            icon={<Hash className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}
-          />
-
-          {/* Select LLM Model */}
-          <CustomDropdown
-            label="Select LLM Model"
-            options={models}
-            value={formData.model}
-            onChange={(val) => setFormData({ ...formData, model: val })}
-            icon={<Cpu className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}
-          />
-
-          {/* Logic in English */}
-          <div className="space-y-2">
-            <label className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-2 ${isDark ? 'text-white/50' : 'text-gray-550'}`}>
-              <Type className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} /> Logic in English
-            </label>
-            <textarea
-              className={`w-full rounded-lg px-3 py-2 text-sm h-24 focus:outline-none focus:ring-2 transition-all resize-none ${isDark
-                ? 'bg-white/10 border border-white/10 focus:ring-axis-red/30 text-white placeholder-white/30'
-                : 'bg-white border border-gray-200 focus:ring-axis-burgundy/20 text-gray-700 placeholder-gray-400'
-                }`}
-              placeholder="Describe your requirement..."
-              value={formData.logic}
-              onChange={(e) => setFormData({ ...formData, logic: e.target.value })}
+        <div className="space-y-6">
+          {/* Convert Code Toggle Checkbox */}
+          <div className={`p-4 rounded-2xl border flex items-center gap-3 transition-colors duration-400 ${isDark
+            ? 'bg-white/5 border-white/10 text-white'
+            : 'bg-gray-50 border-gray-200 text-gray-700'
+            }`}>
+            <input
+              type="checkbox"
+              id="convertCodeCheckbox"
+              checked={isConvertCodeEnabled}
+              onChange={(e) => handleToggleConvertCode(e.target.checked)}
+              className="w-4 h-4 rounded cursor-pointer accent-axis-red"
             />
+            <label htmlFor="convertCodeCheckbox" className="text-xs font-bold uppercase tracking-wider cursor-pointer select-none">
+              Code Conversion
+            </label>
           </div>
 
-          <button
-            type="submit"
-            disabled={isLoading || estimateLoading}
-            className={`w-full hover:brightness-110 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed group ${isDark
-              ? 'bg-gradient-to-r from-axis-red to-axis-burgundy shadow-lg shadow-black/30'
-              : 'bg-gradient-to-r from-axis-burgundy to-axis-red shadow-lg shadow-axis-burgundy/20'
-              }`}
-          >
-            {isLoading || estimateLoading ? (
-              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            ) : (
-              <>
-                Generate Code
-                <Play className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-              </>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Select Format */}
+            <CustomDropdown
+              label="Select Format"
+              options={formats}
+              value={formData.format}
+              onChange={(val) => setFormData({ ...formData, format: val })}
+              disabled={isConvertCodeEnabled}
+              icon={<Layers className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}
+            />
+
+            {/* Select Tables */}
+            <MultiSelect
+              label="Select Tables"
+              options={availableTables}
+              selected={formData.tables}
+              onChange={(selected) => {
+                const newAvailableColumns = Array.from(
+                  new Set(selected.flatMap(table => dbMetadata[table] || []))
+                );
+                const filteredColumns = formData.columns.filter(col => newAvailableColumns.includes(col));
+                setFormData({
+                  ...formData,
+                  tables: selected,
+                  columns: filteredColumns
+                });
+              }}
+              placeholder="Choose tables..."
+              disabled={isConvertCodeEnabled}
+              icon={<Database className="w-3 h-3" />}
+              actionLink={
+                <button
+                  type="button"
+                  onClick={onCreateNewTable}
+                  disabled={isConvertCodeEnabled}
+                  className={`text-xs font-bold underline tracking-wider transition-colors hover:opacity-80 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'
+                    }`}
+                >
+                  (+) Metastore
+                </button>
+              }
+            />
+
+            {/* Select Columns */}
+            <MultiSelect
+              label="Select Columns"
+              options={availableColumns}
+              selected={formData.columns}
+              onChange={(selected) => setFormData({ ...formData, columns: selected })}
+              placeholder="Choose columns..."
+              disabled={isConvertCodeEnabled}
+              icon={<Type className="w-3 h-3" />}
+            />
+
+            {/* Sample Data Size */}
+            <CustomDropdown
+              label="Sample Data Size"
+              options={sampleSizes}
+              value={formData.sample_data_size}
+              onChange={(val) => setFormData({ ...formData, sample_data_size: Number(val) })}
+              disabled={isConvertCodeEnabled}
+              icon={<Hash className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}
+            />
+
+            {/* Logic in English */}
+            <div className="space-y-2">
+              <label className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-2 ${isDark ? 'text-white/50' : 'text-gray-550'}`}>
+                <Type className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} /> {isConvertCodeEnabled ? 'Legacy Code Content' : 'Logic in English'}
+              </label>
+              <textarea
+                className={`w-full rounded-lg px-3 py-2 text-sm h-24 focus:outline-none focus:ring-2 transition-all resize-none ${isConvertCodeEnabled
+                    ? (isDark ? 'bg-white/5 border border-white/5 text-white/40 cursor-not-allowed opacity-50' : 'bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed opacity-50')
+                    : (isDark
+                      ? 'bg-white/10 border border-white/10 focus:ring-axis-red/30 text-white placeholder-white/30'
+                      : 'bg-white border border-gray-200 focus:ring-axis-burgundy/20 text-gray-700 placeholder-gray-400')
+                  }`}
+                placeholder={isConvertCodeEnabled ? "Parsed legacy code content will appear here..." : "Describe your requirement..."}
+                value={formData.logic}
+                onChange={(e) => setFormData({ ...formData, logic: e.target.value })}
+                disabled={isConvertCodeEnabled}
+              />
+            </div>
+
+            {/* Input Guardrails Status Indicator */}
+            {inputGuardrails && !isConvertCodeEnabled && (
+              <div className={`p-3 rounded-xl text-xs border ${inputGuardrails.passed
+                ? (showSuccess
+                  ? (isDark ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border-emerald-200')
+                  : 'hidden')
+                : (isDark ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-red-50 text-red-700 border-red-200')
+                }`}>
+                <div className="flex items-start gap-2 justify-between">
+                  <div className="flex items-center gap-1.5 font-semibold">
+                    {inputGuardrails.passed ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                    )}
+                    <span>
+                      {inputGuardrails.passed ? 'Input Guardrails passed.' : inputGuardrails.error}
+                    </span>
+                  </div>
+                  {inputGuardrails.passed && (
+                    <button
+                      type="button"
+                      onClick={() => setIsInputGuardrailsModalOpen(true)}
+                      className={`p-1 rounded hover:bg-black/5 dark:hover:bg-white/10 transition-colors ${isDark ? 'text-white/60 hover:text-white' : 'text-gray-555 hover:text-gray-800'
+                        }`}
+                      title="View checked guardrails"
+                    >
+                      <Info className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
-          </button>
-        </form>
+
+            {!isConvertCodeEnabled && (
+              <button
+                type="submit"
+                disabled={isLoading || estimateLoading || (inputGuardrails !== null && !inputGuardrails.passed)}
+                className={`w-full hover:brightness-110 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed group ${isDark
+                  ? 'bg-gradient-to-r from-axis-red to-axis-burgundy shadow-lg shadow-black/30'
+                  : 'bg-gradient-to-r from-axis-burgundy to-axis-red shadow-lg shadow-axis-burgundy/20'
+                  }`}
+              >
+                {isLoading || estimateLoading ? (
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <>
+                    Generate Code
+                    <Play className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                  </>
+                )}
+              </button>
+            )}
+          </form>
+
+          {/* New Convert Code Form */}
+          {isConvertCodeEnabled && (
+            <form onSubmit={handleConvertSubmit} className="space-y-6 pt-6 border-t border-dashed border-gray-300 dark:border-white/10">
+              {/* File Upload Button */}
+              <div className="space-y-2">
+                <label className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-2 ${isDark ? 'text-white/50' : 'text-gray-550'}`}>
+                  <Upload className="w-3 h-3 text-axis-red" /> Upload Legacy Code
+                </label>
+                <div className="flex flex-col gap-2">
+                  <label className={`w-full h-[42px] rounded-lg px-3 flex items-center justify-center gap-2 cursor-pointer border transition-all ${isDark
+                      ? 'bg-white/10 border-white/10 hover:border-white/20 text-white hover:bg-white/15'
+                      : 'bg-white border-gray-200 hover:border-gray-300 text-gray-700 hover:bg-gray-50'
+                    }`}>
+                    <Upload className="w-4 h-4" />
+                    <span className="text-xs font-bold truncate max-w-[180px]">
+                      {legacyFile ? legacyFile.name : 'Choose file...'}
+                    </span>
+                    <input
+                      type="file"
+                      accept=".xml,.json,.pdf,.txt,.doc,.docx"
+                      onChange={handleFileChange}
+                      className="hidden"
+                    />
+                  </label>
+
+                  {isParsingFile && (
+                    <div className={`flex items-center gap-2 text-xs font-semibold ${isDark ? 'text-white/60' : 'text-gray-550'}`}>
+                      <div className="w-3.5 h-3.5 border border-current border-t-transparent rounded-full animate-spin" />
+                      Parsing legacy file...
+                    </div>
+                  )}
+
+                  {/* Special Note */}
+                  <div
+                    id="mockUploadTrigger"
+                    onDoubleClick={handleMockUploadForTesting}
+                    title="Double click to load testing legacy XML sample"
+                    className={`text-[10px] italic leading-tight cursor-pointer ${isDark ? 'text-white/40' : 'text-gray-400'}`}>
+                    Supported file formats: XML, JSON, PDF, TXT, DOC, DOCX. (Double-click to mock upload)
+                  </div>
+                </div>
+              </div>
+
+              {/* Select Output Format */}
+              <CustomDropdown
+                label="Select Output Format"
+                options={['PySpark', 'SparkSQL', 'SQL', 'PL/SQL', 'MongoDB NoSQL']}
+                value={legacyOutputFormat}
+                onChange={(val) => setLegacyOutputFormat(val)}
+                icon={<Layers className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}
+              />
+
+              {/* Input Guardrails Status Indicator */}
+              {inputGuardrails && (
+                <div className={`p-3 rounded-xl text-xs border ${inputGuardrails.passed
+                  ? (showSuccess
+                    ? (isDark ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border-emerald-200')
+                    : 'hidden')
+                  : (isDark ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-red-50 text-red-700 border-red-200')
+                  }`}>
+                  <div className="flex items-start gap-2 justify-between">
+                    <div className="flex items-center gap-1.5 font-semibold">
+                      {inputGuardrails.passed ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                      )}
+                      <span>
+                        {inputGuardrails.passed ? 'Input Guardrails passed.' : inputGuardrails.error}
+                      </span>
+                    </div>
+                    {inputGuardrails.passed && (
+                      <button
+                        type="button"
+                        onClick={() => setIsInputGuardrailsModalOpen(true)}
+                        className={`p-1 rounded hover:bg-black/5 dark:hover:bg-white/10 transition-colors ${isDark ? 'text-white/60 hover:text-white' : 'text-gray-555 hover:text-gray-800'
+                          }`}
+                        title="View checked guardrails"
+                      >
+                        <Info className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isLoading || estimateLoading || isParsingFile || !formData.logic || (inputGuardrails !== null && !inputGuardrails.passed)}
+                className={`w-full hover:brightness-110 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed group ${isDark
+                  ? 'bg-gradient-to-r from-axis-red to-axis-burgundy shadow-lg shadow-black/30'
+                  : 'bg-gradient-to-r from-axis-burgundy to-axis-red shadow-lg shadow-axis-burgundy/20'
+                  }`}
+              >
+                {isLoading || estimateLoading ? (
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <>
+                    Generate Code
+                    <Play className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                  </>
+                )}
+              </button>
+            </form>
+          )}
+        </div>
       ) : (
         <form onSubmit={handleCbiSubmit} className="space-y-6">
           {/* CBI: Select Domain */}
@@ -445,7 +809,7 @@ const InputSection: React.FC<InputSectionProps> = ({
             icon={<Hash className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}
           />
           */}
-          {/* CBI: Select LLM */}
+          {/* CBI: Select LLM - Removed for Dynamic Supervisor Selection
           <CustomDropdown
             label="Select LLM"
             options={['gpt-4o', 'gemini-3.5-flash', 'mistral', 'llama', 'kimi']}
@@ -453,6 +817,7 @@ const InputSection: React.FC<InputSectionProps> = ({
             onChange={(val) => setCbiFormData({ ...cbiFormData, model: val })}
             icon={<Cpu className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}
           />
+          */}
 
           {/* CBI: Query */}
           <div className="space-y-2">
@@ -470,9 +835,43 @@ const InputSection: React.FC<InputSectionProps> = ({
             />
           </div>
 
+          {/* Input Guardrails Status Indicator */}
+          {inputGuardrails && (
+            <div className={`p-3 rounded-xl text-xs border ${inputGuardrails.passed
+              ? (showSuccess
+                ? (isDark ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border-emerald-200')
+                : 'hidden')
+              : (isDark ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-red-50 text-red-700 border-red-200')
+              }`}>
+              <div className="flex items-start gap-2 justify-between">
+                <div className="flex items-center gap-1.5 font-semibold">
+                  {inputGuardrails.passed ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                  )}
+                  <span>
+                    {inputGuardrails.passed ? 'Input Guardrails passed.' : inputGuardrails.error}
+                  </span>
+                </div>
+                {inputGuardrails.passed && (
+                  <button
+                    type="button"
+                    onClick={() => setIsInputGuardrailsModalOpen(true)}
+                    className={`p-1 rounded hover:bg-black/5 dark:hover:bg-white/10 transition-colors ${isDark ? 'text-white/60 hover:text-white' : 'text-gray-555 hover:text-gray-800'
+                      }`}
+                    title="View checked guardrails"
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <button
             type="submit"
-            disabled={isLoading || estimateLoading}
+            disabled={isLoading || estimateLoading || (inputGuardrails !== null && !inputGuardrails.passed)}
             className={`w-full hover:brightness-110 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed group ${isDark
               ? 'bg-gradient-to-r from-axis-red to-axis-burgundy shadow-lg shadow-black/30'
               : 'bg-gradient-to-r from-axis-burgundy to-axis-red shadow-lg shadow-axis-burgundy/20'
@@ -547,6 +946,58 @@ const InputSection: React.FC<InputSectionProps> = ({
                 className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-axis-red hover:brightness-110 shadow-lg shadow-axis-red/20 transition-all"
               >
                 Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Checked Input Guardrails Modal */}
+      {isInputGuardrailsModalOpen && inputGuardrails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className={`w-full max-w-md rounded-2xl p-6 shadow-2xl relative border ${isDark ? 'bg-axis-burgundy-dark text-white border-white/10' : 'bg-white text-gray-800 border-gray-200'
+            }`}>
+            <button
+              type="button"
+              onClick={() => setIsInputGuardrailsModalOpen(false)}
+              className={`absolute top-4 right-4 p-1.5 rounded-lg hover:bg-black/10 transition-colors ${isDark ? 'text-white/60 hover:text-white' : 'text-gray-400 hover:text-gray-600'
+                }`}
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className={`text-lg font-bold flex items-center gap-2 mb-2 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`}>
+              <Info className="w-5 h-5 text-axis-red animate-pulse" /> Input Guardrails Checklist
+            </h3>
+            <p className={`text-xs mb-6 ${isDark ? 'text-white/60' : 'text-gray-550'}`}>
+              The following guardrails were evaluated for your input section logic, tables, and columns.
+            </p>
+
+            <div className="space-y-3 mb-6">
+              {inputGuardrails.checked.map((guard, idx) => (
+                <div key={idx} className={`p-3 rounded-xl border flex items-center justify-between text-xs transition-colors duration-400 ${isDark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-150'
+                  }`}>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="font-semibold">{guard.name}</span>
+                    {guard.message && <span className="text-[10px] opacity-65">{guard.message}</span>}
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${guard.status === 'Passed'
+                    ? 'bg-emerald-500/15 text-emerald-400'
+                    : 'bg-red-500/15 text-red-400'
+                    }`}>
+                    {guard.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsInputGuardrailsModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-axis-red hover:brightness-110 shadow-lg shadow-axis-red/20 transition-all"
+              >
+                Close
               </button>
             </div>
           </div>

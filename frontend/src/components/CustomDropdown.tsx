@@ -8,6 +8,7 @@ interface CustomDropdownProps {
   value: string | number;
   onChange: (value: any) => void;
   icon?: React.ReactNode;
+  disabled?: boolean;
 }
 
 const CustomDropdown: React.FC<CustomDropdownProps> = ({
@@ -15,7 +16,8 @@ const CustomDropdown: React.FC<CustomDropdownProps> = ({
   options,
   value,
   onChange,
-  icon
+  icon,
+  disabled
 }) => {
   const { isDark } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
@@ -39,13 +41,16 @@ const CustomDropdown: React.FC<CustomDropdownProps> = ({
 
       <div className="relative">
         <div
-          onClick={() => setIsOpen(!isOpen)}
-          className={`h-[42px] w-full rounded-lg px-3 flex items-center justify-between cursor-pointer transition-all focus-within:ring-2 ${isDark
-            ? `bg-white/10 border border-white/10 hover:border-white/20 focus-within:ring-axis-red/30 ${isOpen ? 'ring-2 ring-axis-red/30 border-axis-red/50' : ''}`
-            : `bg-white border border-gray-200 hover:border-gray-300 focus-within:ring-axis-burgundy/20 ${isOpen ? 'ring-2 ring-axis-burgundy/20 border-axis-burgundy/50' : ''}`
-            }`}
+          onClick={() => !disabled && setIsOpen(!isOpen)}
+          className={`h-[42px] w-full rounded-lg px-3 flex items-center justify-between transition-all focus-within:ring-2 ${
+            disabled
+              ? (isDark ? 'bg-white/5 border border-white/5 text-white/40 cursor-not-allowed opacity-50' : 'bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed opacity-50')
+              : (isDark
+                ? `bg-white/10 border border-white/10 hover:border-white/20 focus-within:ring-axis-red/30 ${isOpen ? 'ring-2 ring-axis-red/30 border-axis-red/50' : ''} cursor-pointer`
+                : `bg-white border border-gray-200 hover:border-gray-300 focus-within:ring-axis-burgundy/20 ${isOpen ? 'ring-2 ring-axis-burgundy/20 border-axis-burgundy/50' : ''} cursor-pointer`)
+          }`}
         >
-          <span className={`text-sm ${isDark ? 'text-white' : 'text-gray-700'}`}>{value}</span>
+          <span className={`text-sm ${disabled ? (isDark ? 'text-white/40' : 'text-gray-400') : (isDark ? 'text-white' : 'text-gray-700')}`}>{value}</span>
           <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isDark ? 'text-white/40' : 'text-gray-400'} ${isOpen ? 'rotate-180' : ''}`} />
         </div>
 

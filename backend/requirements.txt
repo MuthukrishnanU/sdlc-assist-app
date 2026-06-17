@@ -15,3 +15,7 @@ resend>=0.8.0
 python-multipart>=0.0.9
 openpyxl>=3.1.5
 Faker>=21.5.0
+sqlparse>=0.5.5
+pypdf>=6.9.0
+lxml>=6.0.0
+python-docx>=1.2.0

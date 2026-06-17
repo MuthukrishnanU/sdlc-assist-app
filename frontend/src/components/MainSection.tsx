@@ -1,5 +1,5 @@
 import React from 'react';
-import { Terminal, Activity, Rocket, GitBranch, CheckCircle2, Search, Info, Database, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, Download, Save, X, Cpu, Coins, Moon, Sun } from 'lucide-react';
+import { Terminal, Activity, Rocket, GitBranch, CheckCircle2, Search, Info, Database, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, Download, Save, X, Cpu, Coins, Moon, Sun, AlertCircle, CheckSquare, Copy, Check } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import axios from 'axios';
 //import MultiSelect from './MultiSelect';
@@ -60,6 +60,15 @@ const MainSection: React.FC<MainSectionProps> = ({
   const [isExplanationOpen, setIsExplanationOpen] = React.useState(false);
   const [showCode, setShowCode] = React.useState(false);
 
+  // Output Guardrails, Insights and Persona States
+  const [outputGuardrailsStatus, setOutputGuardrailsStatus] = React.useState<{
+    passed: boolean;
+    checked: Array<{ name: string; status: string; message?: string }>;
+  } | null>(null);
+  const [isOutputGuardrailsModalOpen, setIsOutputGuardrailsModalOpen] = React.useState(false);
+  const [insightsList, setInsightsList] = React.useState<string[]>([]);
+  const [personasList, setPersonasList] = React.useState<any[]>([]);
+
   // Consumption Logs States
   const [isConsumptionModalOpen, setIsConsumptionModalOpen] = React.useState(false);
   const [consumptionData, setConsumptionData] = React.useState<any[]>([]);
@@ -79,6 +88,48 @@ const MainSection: React.FC<MainSectionProps> = ({
   const [projectName, setProjectName] = React.useState('sdlc-data-engineering');
   const [dataFileName, setDataFileName] = React.useState('');
   const [queryFileName, setQueryFileName] = React.useState('');
+
+  const [testCases, setTestCases] = React.useState<any[]>([]);
+  const [isGeneratingTestCases, setIsGeneratingTestCases] = React.useState<boolean>(false);
+  const [showTestCasesSection, setShowTestCasesSection] = React.useState<boolean>(false);
+  const [runningTestCaseIndex, setRunningTestCaseIndex] = React.useState<number | null>(null);
+  const [testCaseResults, setTestCaseResults] = React.useState<{ [key: number]: any }>({});
+  const [isStoringCache, setIsStoringCache] = React.useState<boolean>(false);
+
+  React.useEffect(() => {
+    setTestCases([]);
+    setShowTestCasesSection(false);
+    setTestCaseResults({});
+  }, [code, isLoading]);
+
+  const [isCopied, setIsCopied] = React.useState(false);
+  const [showToast, setShowToast] = React.useState(false);
+  const copyTimeoutRef = React.useRef<any>(null);
+
+  const handleCopyCode = () => {
+    if (!code) return;
+    navigator.clipboard.writeText(code).then(() => {
+      setIsCopied(true);
+      setShowToast(true);
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+      copyTimeoutRef.current = setTimeout(() => {
+        setIsCopied(false);
+        setShowToast(false);
+      }, 2000);
+    }).catch(err => {
+      console.error('Failed to copy text: ', err);
+    });
+  };
+
+  React.useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // CBI Visualization States
   const [chartType, setChartType] = React.useState<string>('Bar Chart');
@@ -327,6 +378,10 @@ const MainSection: React.FC<MainSectionProps> = ({
     setSelectedColumn('');
     setIsPushing(false);
     setCurrentPage(1);
+    setOutputGuardrailsStatus(null);
+    setIsOutputGuardrailsModalOpen(false);
+    setInsightsList([]);
+    setPersonasList([]);
 
     // Reset CBI state
     setChartType('Bar Chart');
@@ -368,6 +423,7 @@ const MainSection: React.FC<MainSectionProps> = ({
   }, [selectedDqTable, selectedDqColumn, simulationData]);
 
   React.useEffect(() => {
+    console.log(personasList);
     setCurrentPage(1);
   }, [searchQuery, smartFilterQuery, sortColumn, sortDirection]);
 
@@ -467,7 +523,10 @@ const MainSection: React.FC<MainSectionProps> = ({
         logic: formData.logic,
         generated_code: code,
         format: formData.format,
-        model: formData.model
+        model: formData.model,
+        role: user?.role,
+        userId: user?.userId,
+        active_tab: activeTab
       });
       setSimulationData(response.data);
       const df = response.data.dataframe || [];
@@ -485,6 +544,16 @@ const MainSection: React.FC<MainSectionProps> = ({
       if (formData.columns && formData.columns.length > 0) {
         setSelectedColumn(formData.columns[0]);
       }
+
+      // Store Output Guardrails, Insights, and Personas
+      const ogList = response.data.output_guardrails || [];
+      const ogPassed = ogList.length > 0 ? ogList.every((g: any) => g.status === 'Passed') : true;
+      setOutputGuardrailsStatus({
+        passed: ogPassed,
+        checked: ogList
+      });
+      setInsightsList(response.data.insights || []);
+      setPersonasList(response.data.personas || []);
     } catch (err) {
       console.error('Failed to run code simulation:', err);
       alert('Failed to simulate output. Make sure MongoDB database is seeded and backend is running.');
@@ -513,7 +582,8 @@ const MainSection: React.FC<MainSectionProps> = ({
         input_fields: formData,
         column_dq_insights: simulationData?.column_dq_insights,
         dq_insights: simulationData?.dataframe,
-        timestamp: new Date().toLocaleString()
+        timestamp: new Date().toLocaleString(),
+        test_cases: testCases
       });
       if (response.data.status === 'success') {
         alert(
@@ -1187,9 +1257,9 @@ const MainSection: React.FC<MainSectionProps> = ({
               {groupedData.map((g, rIdx) => {
                 const yRow = paddingTop + rIdx * barSpacing;
                 const barY = yRow + (barSpacing * 0.22);
-                
+
                 let currentX = paddingLeft;
-                
+
                 return (
                   <g key={rIdx}>
                     <text x={paddingLeft - 10} y={yRow + barSpacing / 2 + 4} textAnchor="end" className={`text-[10px] font-bold ${isDark ? 'fill-white/80' : 'fill-gray-600'}`}>
@@ -1445,6 +1515,218 @@ const MainSection: React.FC<MainSectionProps> = ({
     );
   };
 
+  const handleGenerateTestCases = async () => {
+    if (!code || !formData) return;
+    setIsGeneratingTestCases(true);
+    try {
+      const response = await axios.post(`${apiBaseUrl}/generate-test-cases`, {
+        logic: formData.logic,
+        format: formData.format,
+        tables: formData.tables,
+        columns: formData.columns,
+        generated_code: code,
+        model: formData.model || 'gpt-4o'
+      });
+      setTestCases(response.data || []);
+    } catch (err: any) {
+      console.error('Failed to generate test cases:', err);
+      alert('Failed to generate test cases: ' + (err.response?.data?.detail || err.message));
+    } finally {
+      setIsGeneratingTestCases(false);
+    }
+  };
+
+  const handleRunTestCase = async (index: number) => {
+    if (!code || !formData) return;
+    const testCase = testCases[index];
+    if (!testCase) return;
+    setRunningTestCaseIndex(index);
+    try {
+      const response = await axios.post(`${apiBaseUrl}/run-test-case`, {
+        generated_code: code,
+        format: formData.format,
+        tables: formData.tables,
+        columns: formData.columns,
+        mock_inputs: testCase.mock_inputs,
+        expected_output: testCase.expected_output
+      });
+      setTestCaseResults(prev => ({
+        ...prev,
+        [index]: response.data
+      }));
+    } catch (err: any) {
+      console.error('Failed to run test case:', err);
+      setTestCaseResults(prev => ({
+        ...prev,
+        [index]: {
+          passed: false,
+          status: 'Fail',
+          message: 'Server error: ' + (err.response?.data?.detail || err.message),
+          actual_row_count: 0,
+          actual_output: []
+        }
+      }));
+    } finally {
+      setRunningTestCaseIndex(null);
+    }
+  };
+
+  const handleStoreSemanticCache = async () => {
+    if (!code || !formData) return;
+    setIsStoringCache(true);
+    try {
+      const response = await axios.post(`${apiBaseUrl}/cache/store`, {
+        query: formData.logic,
+        format: formData.format,
+        tables: formData.tables,
+        columns: formData.columns,
+        code: code,
+        userId: user?.userId
+      });
+      alert(response.data.message || 'Stored in Semantic Cache successfully!');
+    } catch (err: any) {
+      console.error('Failed to store in semantic cache:', err);
+      alert('Failed to store in semantic cache: ' + (err.response?.data?.detail || err.message));
+    } finally {
+      setIsStoringCache(false);
+    }
+  };
+
+  const renderTestCasesSection = () => {
+    if (!showTestCasesSection || testCases.length === 0) return null;
+    return (
+      <div className={`mt-6 p-6 rounded-2xl border transition-all duration-400 ${isDark
+        ? 'bg-axis-burgundy-dark/40 border-white/10'
+        : 'bg-white border-gray-200 shadow-xl'}`}>
+        <div className="flex items-center justify-between mb-4 border-b border-white/10 pb-3">
+          <div className="flex items-center gap-2">
+            <Activity className="w-5 h-5 text-blue-400" />
+            <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-800'}`}>
+              Generated Test Cases & Scenarios
+            </h3>
+          </div>
+          <button
+            onClick={() => {
+              const resultsArr = Object.values(testCaseResults);
+              const passedCount = resultsArr.filter(r => r.passed).length;
+              const totalRun = resultsArr.length;
+              alert(`Test Report Summary:\n----------------------\nTotal Run: ${totalRun}/${testCases.length}\nPassed: ${passedCount}\nFailed: ${totalRun - passedCount}\nStatus: ${passedCount === testCases.length ? 'ALL PASSED 🎉' : 'PENDING / FAILED'}`);
+            }}
+            className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${isDark
+              ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30'
+              : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200'}`}
+          >
+            <Save className="w-3.5 h-3.5" />
+            Generate Test Report
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          {testCases.map((tc, idx) => {
+            const result = testCaseResults[idx];
+            const isRunning = runningTestCaseIndex === idx;
+            return (
+              <div key={idx} className={`p-4 rounded-xl border transition-all ${isDark
+                ? 'bg-black/20 border-white/5 hover:border-white/10'
+                : 'bg-gray-50 border-gray-100 hover:border-gray-200 shadow-sm'}`}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+                  <div>
+                    <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-bold mr-2 ${tc.scenario_type === 'Positive'
+                      ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                      : 'bg-rose-500/15 text-rose-400 border border-rose-500/20'}`}>
+                      {tc.scenario_type}
+                    </span>
+                    <span className={`font-semibold text-sm ${isDark ? 'text-white' : 'text-gray-800'}`}>
+                      {tc.title}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    {result && (
+                      <span className={`px-2.5 py-1 rounded-lg text-xs font-extrabold flex items-center gap-1 ${result.passed
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                        : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
+                        {result.passed ? 'PASS' : 'FAIL'}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => handleRunTestCase(idx)}
+                      disabled={isRunning}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${isDark
+                        ? 'bg-white/10 hover:bg-white/15 text-white disabled:opacity-40'
+                        : 'bg-white hover:bg-gray-150 text-gray-700 border border-gray-200'}`}
+                    >
+                      {isRunning ? (
+                        <div className="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        'Run Test'
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <p className={`text-xs opacity-75 mb-3 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                  {tc.description}
+                </p>
+
+                {/* Collapsible Mock Data Details */}
+                <details className="mt-2 group">
+                  <summary className="text-xs font-semibold text-blue-400 cursor-pointer hover:underline list-none flex items-center gap-1.5 select-none">
+                    <span className="transition-transform group-open:rotate-90">▶</span> View Mock Inputs & Expected Outputs
+                  </summary>
+
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    {/* Mock Inputs column */}
+                    <div className={`p-3 rounded-lg border ${isDark ? 'bg-black/40 border-white/5' : 'bg-white border-gray-200'}`}>
+                      <h4 className="font-bold mb-2 text-blue-300">Mock Inputs:</h4>
+                      {Object.entries(tc.mock_inputs || {}).map(([tbl, rows]: any) => (
+                        <div key={tbl} className="mb-2">
+                          <div className="font-semibold text-emerald-400 mb-1">{tbl} ({rows.length} rows):</div>
+                          <pre className="p-2 bg-black/30 rounded text-[10px] overflow-x-auto max-h-40 whitespace-pre">
+                            {JSON.stringify(rows, null, 2)}
+                          </pre>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Expected & Actual Outputs column */}
+                    <div className={`p-3 rounded-lg border ${isDark ? 'bg-black/40 border-white/5' : 'bg-white border-gray-200'} flex flex-col justify-between`}>
+                      <div>
+                        <h4 className="font-bold mb-2 text-blue-300">Expected Output:</h4>
+                        <ul className="space-y-1.5 list-disc pl-4 opacity-90">
+                          <li><strong>Expected Rows:</strong> {tc.expected_output?.expected_row_count}</li>
+                          <li><strong>Description:</strong> {tc.expected_output?.description}</li>
+                        </ul>
+                      </div>
+
+                      {result && (
+                        <div className="mt-4 pt-3 border-t border-white/10">
+                          <h4 className="font-bold mb-1.5 text-blue-305">Actual Output Details:</h4>
+                          <ul className="space-y-1 list-disc pl-4 opacity-90 mb-2">
+                            <li><strong>Actual Rows:</strong> {result.actual_row_count}</li>
+                            <li><strong>Result Message:</strong> {result.message}</li>
+                          </ul>
+                          {result.actual_output && result.actual_output.length > 0 && (
+                            <details className="mt-1">
+                              <summary className="text-[10px] text-emerald-400 cursor-pointer hover:underline select-none">View Actual Rows Data</summary>
+                              <pre className="mt-1.5 p-2 bg-black/30 rounded text-[9px] overflow-x-auto max-h-32 whitespace-pre">
+                                {JSON.stringify(result.actual_output, null, 2)}
+                              </pre>
+                            </details>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </details>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className={`flex-1 p-8 overflow-y-auto transition-colors duration-400 ${isDark ? 'bg-axis-burgundy-deep' : 'bg-axis-gray'}`}>
       <div className="max-w-[1400px] mx-auto space-y-8 animate-in fade-in duration-300">
@@ -1452,7 +1734,7 @@ const MainSection: React.FC<MainSectionProps> = ({
         {/* HEADER */}
         <header className="flex justify-between items-center">
           <h1 className={`text-2xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-axis-red'}`}>
-            {activeTab === 'sdlc' ? 'Code Output & DQ Insights' : 'Code Output & Query Flow'}
+            {activeTab === 'sdlc' ? 'Code Output & DQ Insights' : 'Code Output & Query Plan'}
           </h1>
           <div className="flex items-center gap-3">
             <button
@@ -1516,10 +1798,27 @@ const MainSection: React.FC<MainSectionProps> = ({
               <div className={`rounded-2xl overflow-hidden shadow-xl relative transition-colors duration-400 border ${isDark
                 ? 'bg-axis-burgundy-dark/60 border-white/10'
                 : 'bg-white border-gray-200'}`}>
-                <div className={`flex items-center gap-1.5 px-4 py-3 border-b transition-colors duration-400 ${isDark ? 'bg-black/20 border-white/10' : 'bg-gray-50 border-gray-200'}`}>
-                  <div className="w-2.5 h-2.5 rounded-full bg-red-500/50" />
-                  <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50" />
-                  <div className="w-2.5 h-2.5 rounded-full bg-green-500/50" />
+                <div className={`flex items-center justify-between px-4 py-3 border-b transition-colors duration-400 ${isDark ? 'bg-black/20 border-white/10' : 'bg-gray-50 border-gray-200'}`}>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-full bg-red-500/50" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-green-500/50" />
+                  </div>
+                  {code && (
+                    <button
+                      onClick={handleCopyCode}
+                      className={`p-1.5 rounded-lg border transition-all duration-200 flex items-center justify-center ${isDark
+                        ? 'border-white/10 hover:bg-white/10 text-gray-400 hover:text-white'
+                        : 'border-gray-200 hover:bg-gray-100 text-gray-500 hover:text-gray-900'}`}
+                      title="Copy code to clipboard"
+                    >
+                      {isCopied ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-500 animate-in zoom-in duration-200" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5 transition-transform duration-200 hover:scale-110" />
+                      )}
+                    </button>
+                  )}
                 </div>
                 <pre className={`p-6 font-mono text-sm leading-relaxed whitespace-pre-wrap break-all overflow-x-auto min-h-[300px] ${isLoading ? 'animate-pulse-subtle' : ''}`}>
                   <code className={isDark ? 'text-gray-200' : 'text-gray-700'}>
@@ -1534,33 +1833,103 @@ const MainSection: React.FC<MainSectionProps> = ({
             </section>
 
             {/* Run Code Button Row */}
-            <div className="flex justify-end gap-3">
-              {simulationData?.execution_explanation && (
-                <button
-                  onClick={() => setIsExplanationOpen(true)}
-                  className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border ${isDark
-                    ? 'bg-axis-red/20 hover:bg-axis-red/30 text-white border-axis-red/30'
-                    : 'bg-red-50 hover:bg-red-100 text-axis-burgundy border-red-200'}`}
-                >
-                  <Info className="w-4 h-4" />
-                  Execution Explanation
-                </button>
-              )}
-              <button
-                onClick={handleRunCode}
-                disabled={!code || isSimulating || isLoading}
-                className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
-                  ? 'bg-white/10 hover:bg-white/15 text-white border border-white/10'
-                  : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200'}`}
-              >
-                {isSimulating ? (
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <Rocket className="w-4 h-4" />
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                {/* Output Guardrails Status Indicator */}
+                {simulatedData.length > 0 && outputGuardrailsStatus && (
+                  <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${outputGuardrailsStatus.passed
+                    ? (isDark ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-lg shadow-emerald-500/5' : 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm')
+                    : (isDark ? 'bg-red-500/10 text-red-400 border-red-500/20 shadow-lg shadow-red-500/5' : 'bg-red-50 text-red-700 border-red-200 shadow-sm')
+                    }`}>
+                    {outputGuardrailsStatus.passed ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                    )}
+                    <span>
+                      {outputGuardrailsStatus.passed ? 'Output Guardrails passed.' : 'Output Guardrails violated.'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsOutputGuardrailsModalOpen(true)}
+                      className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-white/10 text-white/60 hover:text-white' : 'hover:bg-black/5 text-gray-555 hover:text-gray-800'
+                        }`}
+                      title="View checked output guardrails"
+                    >
+                      <Info className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 )}
-                {isSimulating ? 'Simulating...' : 'Run Code'}
-              </button>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 shrink-0">
+                {simulationData?.execution_explanation && (
+                  <button
+                    onClick={() => setIsExplanationOpen(true)}
+                    className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border ${isDark
+                      ? 'bg-axis-red/20 hover:bg-axis-red/30 text-white border-axis-red/30'
+                      : 'bg-red-50 hover:bg-red-100 text-axis-burgundy border-red-200'}`}
+                  >
+                    <Info className="w-4 h-4" />
+                    Execution Explanation
+                  </button>
+                )}
+                <button
+                  onClick={handleStoreSemanticCache}
+                  disabled={!code || isStoringCache || isLoading}
+                  className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
+                    ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30'
+                    : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'}`}
+                >
+                  {isStoringCache ? (
+                    <div className="w-4 h-4 border-2 border-amber-300/30 border-t-amber-300 rounded-full animate-spin" />
+                  ) : (
+                    <Database className="w-4 h-4" />
+                  )}
+                  Store at Semantic Cache
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (testCases.length > 0) {
+                      setShowTestCasesSection(prev => !prev);
+                    } else {
+                      handleGenerateTestCases();
+                    }
+                  }}
+                  disabled={!code || isGeneratingTestCases || isLoading}
+                  className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
+                    ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30'
+                    : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200'}`}
+                >
+                  {isGeneratingTestCases ? (
+                    <div className="w-4 h-4 border-2 border-blue-300/30 border-t-blue-300 rounded-full animate-spin" />
+                  ) : (
+                    <CheckSquare className="w-4 h-4" />
+                  )}
+                  {testCases.length > 0 
+                    ? (showTestCasesSection ? 'Hide Test Cases' : 'Show Test Cases') 
+                    : 'Generate Test Cases'}
+                </button>
+
+                <button
+                  onClick={handleRunCode}
+                  disabled={!code || isSimulating || isLoading}
+                  className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
+                    ? 'bg-white/10 hover:bg-white/15 text-white border border-white/10'
+                    : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200'}`}
+                >
+                  {isSimulating ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Rocket className="w-4 h-4" />
+                  )}
+                  {isSimulating ? 'Simulating...' : 'Run Code'}
+                </button>
+              </div>
             </div>
+
+            {renderTestCasesSection()}
 
             {/* Simulated Output Preview Section */}
             {simulatedData.length > 0 && (
@@ -1912,7 +2281,7 @@ const MainSection: React.FC<MainSectionProps> = ({
               {/* Flow Explanation Card */}
               <section className="flex-1 min-w-0 space-y-4">
                 <div className={`flex items-center gap-2 p-2 font-semibold uppercase text-xs tracking-widest ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`}>
-                  <Info className="w-4 h-4" /> Query Flow
+                  <Info className="w-4 h-4" /> Query Plan
                 </div>
                 <div className={`rounded-2xl p-5 min-h-[300px] max-h-[390px] overflow-y-auto shadow-xl relative transition-all border leading-relaxed text-sm ${isDark
                   ? 'bg-axis-burgundy-dark/40 border-white/10 text-gray-200'
@@ -1965,10 +2334,27 @@ const MainSection: React.FC<MainSectionProps> = ({
                 {showCode && <div className={`rounded-2xl overflow-hidden shadow-xl relative transition-colors duration-400 border ${isDark
                   ? 'bg-axis-burgundy-dark/60 border-white/10'
                   : 'bg-white border-gray-200'}`}>
-                  <div className={`flex items-center gap-1.5 px-4 py-3 border-b transition-colors duration-400 ${isDark ? 'bg-black/20 border-white/10' : 'bg-gray-50 border-gray-200'}`}>
-                    <div className="w-2.5 h-2.5 rounded-full bg-red-500/50" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50" />
-                    <div className="w-2.5 h-2.5 rounded-full bg-green-500/50" />
+                  <div className={`flex items-center justify-between px-4 py-3 border-b transition-colors duration-400 ${isDark ? 'bg-black/20 border-white/10' : 'bg-gray-50 border-gray-200'}`}>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-red-500/50" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-green-500/50" />
+                    </div>
+                    {code && (
+                      <button
+                        onClick={handleCopyCode}
+                        className={`p-1.5 rounded-lg border transition-all duration-200 flex items-center justify-center ${isDark
+                          ? 'border-white/10 hover:bg-white/10 text-gray-400 hover:text-white'
+                          : 'border-gray-200 hover:bg-gray-100 text-gray-500 hover:text-gray-900'}`}
+                        title="Copy code to clipboard"
+                      >
+                        {isCopied ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-500 animate-in zoom-in duration-200" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5 transition-transform duration-200 hover:scale-110" />
+                        )}
+                      </button>
+                    )}
                   </div>
                   <pre className={`p-5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all min-h-[260px] max-h-[350px] overflow-y-auto ${isLoading ? 'animate-pulse-subtle' : ''}`}>
                     <code className={isDark ? 'text-gray-200' : 'text-gray-700'}>
@@ -1984,33 +2370,103 @@ const MainSection: React.FC<MainSectionProps> = ({
             </div>
 
             {/* Run Code Button Row */}
-            <div className="flex justify-end gap-3">
-              {simulationData?.execution_explanation && (
-                <button
-                  onClick={() => setIsExplanationOpen(true)}
-                  className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border ${isDark
-                    ? 'bg-axis-red/20 hover:bg-axis-red/30 text-white border-axis-red/30'
-                    : 'bg-red-50 hover:bg-red-100 text-axis-burgundy border-red-200'}`}
-                >
-                  <Info className="w-4 h-4" />
-                  Execution Explanation
-                </button>
-              )}
-              <button
-                onClick={handleRunCode}
-                disabled={!code || isSimulating || isLoading}
-                className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
-                  ? 'bg-white/10 hover:bg-white/15 text-white border border-white/10'
-                  : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200'}`}
-              >
-                {isSimulating ? (
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <Rocket className="w-4 h-4" />
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                {/* Output Guardrails Status Indicator */}
+                {simulatedData.length > 0 && outputGuardrailsStatus && (
+                  <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${outputGuardrailsStatus.passed
+                    ? (isDark ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-lg shadow-emerald-500/5' : 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm')
+                    : (isDark ? 'bg-red-500/10 text-red-400 border-red-500/20 shadow-lg shadow-red-500/5' : 'bg-red-50 text-red-700 border-red-200 shadow-sm')
+                    }`}>
+                    {outputGuardrailsStatus.passed ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                    )}
+                    <span>
+                      {outputGuardrailsStatus.passed ? 'Output Guardrails passed.' : 'Output Guardrails violated.'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsOutputGuardrailsModalOpen(true)}
+                      className={`p-1 rounded transition-colors ${isDark ? 'hover:bg-white/10 text-white/60 hover:text-white' : 'hover:bg-black/5 text-gray-555 hover:text-gray-800'
+                        }`}
+                      title="View checked output guardrails"
+                    >
+                      <Info className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 )}
-                {isSimulating ? 'Simulating...' : 'Run Code'}
-              </button>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 shrink-0">
+                {simulationData?.execution_explanation && (
+                  <button
+                    onClick={() => setIsExplanationOpen(true)}
+                    className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border ${isDark
+                      ? 'bg-axis-red/20 hover:bg-axis-red/30 text-white border-axis-red/30'
+                      : 'bg-red-50 hover:bg-red-100 text-axis-burgundy border-red-200'}`}
+                  >
+                    <Info className="w-4 h-4" />
+                    Execution Explanation
+                  </button>
+                )}
+                <button
+                  onClick={handleStoreSemanticCache}
+                  disabled={!code || isStoringCache || isLoading}
+                  className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
+                    ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30'
+                    : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'}`}
+                >
+                  {isStoringCache ? (
+                    <div className="w-4 h-4 border-2 border-amber-300/30 border-t-amber-300 rounded-full animate-spin" />
+                  ) : (
+                    <Database className="w-4 h-4" />
+                  )}
+                  Store at Semantic Cache
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (testCases.length > 0) {
+                      setShowTestCasesSection(prev => !prev);
+                    } else {
+                      handleGenerateTestCases();
+                    }
+                  }}
+                  disabled={!code || isGeneratingTestCases || isLoading}
+                  className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
+                    ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30'
+                    : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200'}`}
+                >
+                  {isGeneratingTestCases ? (
+                    <div className="w-4 h-4 border-2 border-blue-300/30 border-t-blue-300 rounded-full animate-spin" />
+                  ) : (
+                    <CheckSquare className="w-4 h-4" />
+                  )}
+                  {testCases.length > 0 
+                    ? (showTestCasesSection ? 'Hide Test Cases' : 'Show Test Cases') 
+                    : 'Generate Test Cases'}
+                </button>
+
+                <button
+                  onClick={handleRunCode}
+                  disabled={!code || isSimulating || isLoading}
+                  className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
+                    ? 'bg-white/10 hover:bg-white/15 text-white border border-white/10'
+                    : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200'}`}
+                >
+                  {isSimulating ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Rocket className="w-4 h-4" />
+                  )}
+                  {isSimulating ? 'Simulating...' : 'Run Code'}
+                </button>
+              </div>
             </div>
+
+            {renderTestCasesSection()}
 
             {/* Output Simulation Section */}
             {simulatedData.length > 0 && (
@@ -2348,6 +2804,27 @@ const MainSection: React.FC<MainSectionProps> = ({
               </section>
             )}
           </>
+        )}
+
+        {/* Insights & Persona Section */}
+        {simulatedData.length > 0 && activeTab === 'cbi' && insightsList.length > 0 && (
+          <div className="grid grid-cols-1 gap-6 animate-in fade-in duration-300">
+            {/* Business & DQ Insights */}
+            <div className={`p-6 rounded-2xl border transition-colors duration-400 space-y-4 ${isDark ? 'bg-axis-burgundy-dark/40 border-white/10 text-white' : 'bg-white border-gray-200 text-gray-800'
+              }`}>
+              <h3 className={`text-sm font-bold uppercase tracking-wider flex items-center gap-2 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`}>
+                <Activity className="w-4 h-4 text-axis-red" /> Business & DQ Insights
+              </h3>
+              <ul className="space-y-3 text-xs leading-relaxed">
+                {insightsList.map((insight, idx) => (
+                  <li key={idx} className="flex gap-2 items-start">
+                    <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${isDark ? 'bg-axis-cream' : 'bg-axis-burgundy'}`} />
+                    <span>{insight}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
         )}
 
         {/* GitHub Push Configuration Form */}
@@ -2817,6 +3294,66 @@ const MainSection: React.FC<MainSectionProps> = ({
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Checked Output Guardrails Modal */}
+      {isOutputGuardrailsModalOpen && outputGuardrailsStatus && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className={`w-full max-w-md rounded-2xl p-6 shadow-2xl relative border ${isDark ? 'bg-axis-burgundy-dark text-white border-white/10' : 'bg-white text-gray-800 border-gray-200'
+            }`}>
+            <button
+              type="button"
+              onClick={() => setIsOutputGuardrailsModalOpen(false)}
+              className={`absolute top-4 right-4 p-1.5 rounded-lg hover:bg-black/10 transition-colors ${isDark ? 'text-white/60 hover:text-white' : 'text-gray-400 hover:text-gray-600'
+                }`}
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className={`text-lg font-bold flex items-center gap-2 mb-2 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`}>
+              <Info className="w-5 h-5 text-axis-red animate-pulse" /> Output Guardrails Checklist
+            </h3>
+            <p className={`text-xs mb-6 ${isDark ? 'text-white/60' : 'text-gray-550'}`}>
+              The following guardrails were evaluated for the simulated output table preview.
+            </p>
+
+            <div className="space-y-3 mb-6">
+              {outputGuardrailsStatus.checked.map((guard, idx) => (
+                <div key={idx} className={`p-3 rounded-xl border flex items-center justify-between text-xs transition-colors duration-400 ${isDark ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-150'
+                  }`}>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="font-semibold">{guard.name}</span>
+                    {guard.message && <span className="text-[10px] opacity-65">{guard.message}</span>}
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${guard.status === 'Passed'
+                    ? 'bg-emerald-500/15 text-emerald-400'
+                    : 'bg-red-500/15 text-red-400'
+                    }`}>
+                    {guard.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsOutputGuardrailsModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-axis-red hover:brightness-110 shadow-lg shadow-axis-red/20 transition-all"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Toast Notification */}
+      {showToast && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-axis-burgundy/95 dark:bg-axis-red/95 text-white px-6 py-3 rounded-xl shadow-2xl border border-white/10 flex items-center gap-2 animate-toast-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 animate-bounce" />
+          <span className="text-sm font-semibold">Code Copied to Clipboard</span>
         </div>
       )}
     </div>

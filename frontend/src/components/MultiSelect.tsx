@@ -10,6 +10,7 @@ interface MultiSelectProps {
   placeholder?: string;
   icon?: React.ReactNode;
   actionLink?: React.ReactNode;
+  disabled?: boolean;
 }
 
 const MultiSelect: React.FC<MultiSelectProps> = ({
@@ -19,7 +20,8 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
   onChange,
   placeholder = "Select options...",
   icon,
-  actionLink
+  actionLink,
+  disabled
 }) => {
   const { isDark } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
@@ -71,11 +73,13 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
       
       <div className="relative">
         <div
-          onClick={() => setIsOpen(!isOpen)}
-          className={`min-h-[42px] w-full rounded-lg px-3 py-1.5 flex flex-wrap gap-1.5 items-center cursor-pointer transition-all focus-within:ring-2 ${
-            isDark
-              ? `bg-white/10 border border-white/10 hover:border-white/20 focus-within:ring-axis-red/30 ${isOpen ? 'ring-2 ring-axis-red/30 border-axis-red/50' : ''}`
-              : `bg-white border border-gray-200 hover:border-gray-300 focus-within:ring-axis-burgundy/20 ${isOpen ? 'ring-2 ring-axis-burgundy/20 border-axis-burgundy/50' : ''}`
+          onClick={() => !disabled && setIsOpen(!isOpen)}
+          className={`min-h-[42px] w-full rounded-lg px-3 py-1.5 flex flex-wrap gap-1.5 items-center transition-all focus-within:ring-2 ${
+            disabled
+              ? (isDark ? 'bg-white/5 border border-white/5 text-white/40 cursor-not-allowed opacity-50' : 'bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed opacity-50')
+              : (isDark
+                ? `bg-white/10 border border-white/10 hover:border-white/20 focus-within:ring-axis-red/30 ${isOpen ? 'ring-2 ring-axis-red/30 border-axis-red/50' : ''} cursor-pointer`
+                : `bg-white border border-gray-200 hover:border-gray-300 focus-within:ring-axis-burgundy/20 ${isOpen ? 'ring-2 ring-axis-burgundy/20 border-axis-burgundy/50' : ''} cursor-pointer`)
           }`}
         >
           {selected.length === 0 ? (
@@ -91,18 +95,20 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
                 }`}
               >
                 {item}
-                <button
-                  onClick={(e) => removeOption(e, item)}
-                  className="hover:text-white transition-colors"
-                >
-                  <X className="w-3 h-3" />
-                </button>
+                {!disabled && (
+                  <button
+                    onClick={(e) => removeOption(e, item)}
+                    className="hover:text-white transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
               </span>
             ))
           )}
           
           <div className="ml-auto flex items-center gap-2 pl-2">
-            {selected.length > 0 && (
+            {selected.length > 0 && !disabled && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();

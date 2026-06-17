@@ -4,16 +4,18 @@ from openai import AsyncOpenAI
 from .schemas import CodeGenerationRequest, CodeGenerationResponse, DQInsights
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 def parse_llm_json(content: str) -> dict:
     content = content.strip()
-    if content.startswith("```"):
-        # find the first { and last }
-        start_idx = content.find("{")
-        end_idx = content.rfind("}")
-        if start_idx != -1 and end_idx != -1:
-            content = content[start_idx:end_idx+1]
+    start_idx = content.find("{")
+    end_idx = content.rfind("}")
+    if start_idx != -1 and end_idx != -1 and end_idx >= start_idx:
+        json_str = content[start_idx:end_idx+1]
+        try:
+            return json.loads(json_str)
+        except Exception:
+            pass
     return json.loads(content)
 
 def sanitize_dq_insights(dq_in: dict) -> dict:
