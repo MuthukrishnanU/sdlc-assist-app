@@ -36,9 +36,9 @@ try:
     duck_spark_sql.SparkSession.Builder.getOrCreate = patched_getOrCreate
     
     DataFrameReader.table = lambda self, tableName: self.session.table(tableName)
-    DataFrameReader.csv = lambda self, path, *args, **kwargs: self.session.sql(f"SELECT * FROM read_csv_auto('{str(path).replace('\\\\', '/')}')")
-    DataFrameReader.json = lambda self, path, *args, **kwargs: self.session.sql(f"SELECT * FROM read_json_auto('{str(path).replace('\\\\', '/')}')")
-    DataFrameReader.parquet = lambda self, path, *args, **kwargs: self.session.sql(f"SELECT * FROM read_parquet('{str(path).replace('\\\\', '/')}')")
+    DataFrameReader.csv = lambda self, path, *args, **kwargs: self.session.sql("SELECT * FROM read_csv_auto('" + str(path).replace('\\\\', '/') + "')")
+    DataFrameReader.json = lambda self, path, *args, **kwargs: self.session.sql("SELECT * FROM read_json_auto('" + str(path).replace('\\\\', '/') + "')")
+    DataFrameReader.parquet = lambda self, path, *args, **kwargs: self.session.sql("SELECT * FROM read_parquet('" + str(path).replace('\\\\', '/') + "')")
 
     class WindowSpec:
         def __init__(self, partition_cols=None, order_cols=None):
