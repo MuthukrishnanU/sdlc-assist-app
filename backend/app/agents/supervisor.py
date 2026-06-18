@@ -193,10 +193,12 @@ def supervisor_decide_models(logic: str, format_str: str, tables: list) -> dict:
     is_complex = any(k in logic_lower for k in ["join", "window", "partition", "rank", "analytic", "complex", "over", "dedup"]) or tables_count > 1
     
     if is_complex:
-        code_gen_model = random.choice(["gpt-4o", "mistral-large-latest", "meta-llama/Llama-3.3-70B-Instruct-Turbo"]) or "gpt-4o"
+        #code_gen_model = random.choice(["gpt-4o", "mistral-large-latest", "meta-llama/Llama-3.3-70B-Instruct-Turbo"]) or "gpt-4o"
+        code_gen_model = "gpt-4o"
         code_gen_deep_thinking = True
     else:
-        code_gen_model = random.choice(["gpt-4o", "mistral-large-latest", "meta-llama/Llama-3.3-70B-Instruct-Turbo"]) or "gemini-3.5-flash"
+        #code_gen_model = random.choice(["gpt-4o", "mistral-large-latest", "meta-llama/Llama-3.3-70B-Instruct-Turbo"]) or "gemini-3.5-flash"
+        code_gen_model = "gpt-4o"
         code_gen_deep_thinking = False
         
     # fallback code simulation model
