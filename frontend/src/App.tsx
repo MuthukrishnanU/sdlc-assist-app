@@ -99,9 +99,21 @@ function App() {
         tables: response.data.detected_tables || prev?.tables || [],
         columns: response.data.detected_columns || prev?.columns || []
       }));
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error generating code:', error);
-      alert('Failed to generate code. Please ensure the backend is running and LLM API key is configured.');
+      let errMsg = 'Failed to generate code. Please ensure the backend is running and LLM API key is configured.';
+      if (error.response?.data?.detail) {
+        if (typeof error.response.data.detail === 'string') {
+          errMsg = error.response.data.detail;
+        } else if (Array.isArray(error.response.data.detail)) {
+          errMsg = error.response.data.detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ');
+        } else {
+          errMsg = typeof error.response.data.detail === 'object' 
+            ? (error.response.data.detail.message || JSON.stringify(error.response.data.detail))
+            : String(error.response.data.detail);
+        }
+      }
+      alert(errMsg);
     } finally {
       setLoading(false);
     }

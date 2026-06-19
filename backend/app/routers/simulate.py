@@ -160,7 +160,7 @@ async def simulate_data(request: SimulationRequest):
         
         # Call supervisor routing to decide models dynamically
         from ..agents.supervisor import supervisor_decide_models
-        decisions = supervisor_decide_models(request.logic or "", request.format or "SQL", request.tables)
+        decisions = supervisor_decide_models(request.logic or "", request.format or "SQL", request.tables, request.model)
         
         llms_special_inst = (
             f"Supervisor Model Selections:\n"
@@ -180,13 +180,14 @@ async def simulate_data(request: SimulationRequest):
                 "Retrieved execution results and converted them to pandas DataFrame.",
                 "Profiled output rows to calculate Data Quality metrics."
             ]
+            #"special_instructions": f"This simulation was run locally on backend CPU using DuckDB + Fugue Spark Emulation.\n\n{llms_special_inst}",
             execution_explanation = {
                 "query": code_str or "-- No code executed --",
                 "execution_time_ms": execution_time_ms,
                 "records_processed": records_processed,
                 "software_requirements": ["FastAPI", "Pandas", "DuckDB", "Fugue", "PyMongo"],
                 "execution_steps": exec_steps,
-                "special_instructions": f"This simulation was run locally on backend CPU using DuckDB + Fugue Spark Emulation.\n\n{llms_special_inst}",
+                "special_instructions": f"This simulation was run locally on backend CPU using DuckDB + Fugue Spark Emulation.",
                 "execution_cost": "Estimated cost: FREE ($0.00)",
                 "prompt_tokens": 0,
                 "completion_tokens": 0
@@ -198,13 +199,14 @@ async def simulate_data(request: SimulationRequest):
                 "Executed query engine locally against in-memory data tables.",
                 "Profiled output rows to calculate Data Quality metrics."
             ]
+            #"special_instructions": f"This simulation was run locally on backend CPU using DuckDB and PyMongo.\n\n{llms_special_inst}",
             execution_explanation = {
                 "query": code_str or "-- No code executed --",
                 "execution_time_ms": execution_time_ms,
                 "records_processed": records_processed,
                 "software_requirements": ["FastAPI", "Pandas", "DuckDB", "PyMongo"],
                 "execution_steps": exec_steps,
-                "special_instructions": f"This simulation was run locally on backend CPU using DuckDB and PyMongo.\n\n{llms_special_inst}",
+                "special_instructions": f"This simulation was run locally on backend CPU using DuckDB and PyMongo.",
                 "execution_cost": "Estimated cost: FREE ($0.00)",
                 "prompt_tokens": 0,
                 "completion_tokens": 0

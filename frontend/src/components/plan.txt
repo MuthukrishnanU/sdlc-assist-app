@@ -539,6 +539,25 @@ Similarly, in the Conversational BI page, when user clicks on "Show Code", a sim
 
 Provide me with the code changes for the same.
 
+ToDo18Jun26:
+(1) SparkSQL Agent:
+It seems we have missed the SparkSQL agent generation code.
+Currently when the user selects "SparkSQL" format in InputSection, we get the generated code in PySpark format only.
+PySpark and SparkSQL are different formats.
+Please refer to the older generator.py file (inside app folder) & create separate Code Generator Agent for SparkSQL as well (with instructions specific to SparkSQL).
+
+(2) Model Names to be removed from Query Plan:
+Temporarily remove the names of models/LLMs used from "Execution Explanation" modal/popup as well as from the "Query Plan" or "Flow Explanation" temporarily until further notice.
+
+(3) LLM Selection dropdown:
+Bring back the dropdown to select the LLM model - we removed this dropdown a few days ago & let supervisor agent decide the LLM.
+In SDLC Assist page, the "Select LLM Model" dropdown was placed just above the "Logic in English" card/division.
+In Conversational BI page, the "Select LLM Model" dropdown was placed just above the "Query" card/division.
+This dropdown must have the following options: "gpt-4o, gemini-3.5-flash, mistral-large-latest, meta-llama/Llama-3.3-70B-Instruct-Turbo, moonshotai/Kimi-K2.6".
+So, the choice of LLM must be made on the basis of user choice only.
+In the supervisor.py agent, do not remove the "supervisor_decide_models" method.
+Simply replace the "code_gen_model" and "fallback_model" variables' values with the user selected LLM model.
+
 ToDoLater:
 (1) Framework Implementation:
 I want to implement a "Framework Establishment" feature for admin.

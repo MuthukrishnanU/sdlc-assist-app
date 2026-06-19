@@ -7,6 +7,7 @@ from ..schemas.code_gen import CodeGenerationRequest
 from .utils import get_schema_context
 from .code_generators.sql_agent import generate_sql
 from .code_generators.pyspark_agent import generate_pyspark
+from .code_generators.sparksql_agent import generate_sparksql
 from .code_generators.plsql_agent import generate_plsql
 from .code_generators.nosql_agent import generate_nosql
 from .insights_agent import generate_insights
@@ -49,6 +50,17 @@ async def sql_generator_node(state: AgentState) -> dict:
 # Node: PySpark Generator Agent
 async def pyspark_generator_node(state: AgentState) -> dict:
     res = await generate_pyspark(state["request"], state["schema_context"])
+    return {
+        "generated_code": res.get("generated_code", ""),
+        "flow_explanation": res.get("flow_explanation", ""),
+        "dq_insights": res.get("dq_insights", {}),
+        "prompt_tokens": state["prompt_tokens"] + res.get("prompt_tokens", 0),
+        "completion_tokens": state["completion_tokens"] + res.get("completion_tokens", 0)
+    }
+
+# Node: SparkSQL Generator Agent
+async def sparksql_generator_node(state: AgentState) -> dict:
+    res = await generate_sparksql(state["request"], state["schema_context"])
     return {
         "generated_code": res.get("generated_code", ""),
         "flow_explanation": res.get("flow_explanation", ""),
@@ -133,7 +145,9 @@ async def persona_generator_node(state: AgentState) -> dict:
 # Conditional Routing Logic
 def route_format(state: AgentState) -> str:
     fmt = state["format"].upper()
-    if "SPARK" in fmt:
+    if "SPARKSQL" in fmt or "SPARK_SQL" in fmt or "SPARK SQL" in fmt:
+        return "sparksql"
+    elif "SPARK" in fmt:
         return "pyspark"
     elif "PL/SQL" in fmt or "PLSQL" in fmt:
         return "plsql"
@@ -149,6 +163,7 @@ workflow = StateGraph(AgentState)
 workflow.add_node("supervisor", supervisor_router_node)
 workflow.add_node("sql", sql_generator_node)
 workflow.add_node("pyspark", pyspark_generator_node)
+workflow.add_node("sparksql", sparksql_generator_node)
 workflow.add_node("plsql", plsql_generator_node)
 workflow.add_node("nosql", nosql_generator_node)
 workflow.add_node("simulation", simulation_runner_node)
@@ -165,6 +180,7 @@ workflow.add_conditional_edges(
     {
         "sql": "sql",
         "pyspark": "pyspark",
+        "sparksql": "sparksql",
         "plsql": "plsql",
         "nosql": "nosql"
     }
@@ -173,6 +189,7 @@ workflow.add_conditional_edges(
 # Connect format generators to the simulation node
 workflow.add_edge("sql", "simulation")
 workflow.add_edge("pyspark", "simulation")
+workflow.add_edge("sparksql", "simulation")
 workflow.add_edge("plsql", "simulation")
 workflow.add_edge("nosql", "simulation")
 
@@ -182,7 +199,7 @@ workflow.add_edge("simulation", "insights")
 # Chain insights to END directly (bypassing persona agent as per instructions)
 workflow.add_edge("insights", END)
 
-def supervisor_decide_models(logic: str, format_str: str, tables: list) -> dict:
+def supervisor_decide_models(logic: str, format_str: str, tables: list, model: Optional[str] = None) -> dict:
     """
     Supervisor routing logic to dynamically select models & deep thinking configurations.
     """
@@ -193,22 +210,13 @@ def supervisor_decide_models(logic: str, format_str: str, tables: list) -> dict:
     is_complex = any(k in logic_lower for k in ["join", "window", "partition", "rank", "analytic", "complex", "over", "dedup"]) or tables_count > 1
     
     if is_complex:
-        #code_gen_model = random.choice(["gpt-4o", "mistral-large-latest", "meta-llama/Llama-3.3-70B-Instruct-Turbo"]) or "gpt-4o"
-        code_gen_model = "gpt-4o"
         code_gen_deep_thinking = True
     else:
-        #code_gen_model = random.choice(["gpt-4o", "mistral-large-latest", "meta-llama/Llama-3.3-70B-Instruct-Turbo"]) or "gemini-3.5-flash"
-        code_gen_model = "gpt-4o"
         code_gen_deep_thinking = False
         
-    # fallback code simulation model
-    fmt = (format_str or "SQL").upper()
-    if "SPARK" in fmt or "NOSQL" in fmt or "MONGO" in fmt:
-        fallback_model = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
-        fallback_deep_thinking = False
-    else:
-        fallback_model = "gemini-2.5-flash"
-        fallback_deep_thinking = False
+    code_gen_model = model or "gpt-4o"
+    fallback_model = model or "gpt-4o"
+    fallback_deep_thinking = False
         
     # Insights model (always deep thinking as per instructions)
     insights_model = "gpt-4o"
@@ -230,7 +238,7 @@ graph = workflow.compile()
 
 async def run_agent_workflow(request: CodeGenerationRequest) -> dict:
     # Run supervisor dynamic LLM selection
-    decisions = supervisor_decide_models(request.logic, request.format, request.tables)
+    decisions = supervisor_decide_models(request.logic, request.format, request.tables, request.model)
     
     # Override request model with chosen code generation model
     request.model = decisions["code_generation"]["model"]
@@ -260,6 +268,7 @@ async def run_agent_workflow(request: CodeGenerationRequest) -> dict:
     llm_info += f"- Business Insights Agent: {decisions['insights']['model']} (Deep Thinking: {'Enabled' if decisions['insights']['deep_thinking'] else 'Disabled'})\n"
     llm_info += f"- Persona Agent: {decisions['personas']['model']} (Deep Thinking: {'Enabled' if decisions['personas']['deep_thinking'] else 'Disabled'} - Not Invoked)"
     
-    final_state["flow_explanation"] = final_state.get("flow_explanation", "") + llm_info
+    #final_state["flow_explanation"] = final_state.get("flow_explanation", "") + llm_info
+    final_state["flow_explanation"] = final_state.get("flow_explanation", "")
     
     return final_state

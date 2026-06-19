@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database, Code2, Layers, Type, Hash, Play, /*Cpu,*/ AlertCircle, X, CheckCircle2, Info, Upload } from 'lucide-react';
+import { Database, Code2, Layers, Type, Hash, Play, Cpu, AlertCircle, X, CheckCircle2, Info, Upload } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import axios from 'axios';
 import MultiSelect from './MultiSelect';
@@ -555,6 +555,16 @@ const InputSection: React.FC<InputSectionProps> = ({
               icon={<Hash className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}
             />
 
+             {/* Select LLM Model */}
+            <CustomDropdown
+              label="Select LLM Model"
+              options={['gpt-4o', 'gemini-3.5-flash', 'mistral-large-latest', 'meta-llama/Llama-3.3-70B-Instruct-Turbo', 'moonshotai/Kimi-K2.6']}
+              value={formData.model}
+              onChange={(val) => setFormData({ ...formData, model: val })}
+              disabled={isConvertCodeEnabled}
+              icon={<Cpu className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}
+            />
+
             {/* Logic in English */}
             <div className="space-y-2">
               <label className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-2 ${isDark ? 'text-white/50' : 'text-gray-550'}`}>
@@ -809,15 +819,14 @@ const InputSection: React.FC<InputSectionProps> = ({
             icon={<Hash className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}
           />
           */}
-          {/* CBI: Select LLM - Removed for Dynamic Supervisor Selection
+          {/* Select LLM Model */}
           <CustomDropdown
-            label="Select LLM"
-            options={['gpt-4o', 'gemini-3.5-flash', 'mistral', 'llama', 'kimi']}
+            label="Select LLM Model"
+            options={['gpt-4o', 'gemini-3.5-flash', 'mistral-large-latest', 'meta-llama/Llama-3.3-70B-Instruct-Turbo', 'moonshotai/Kimi-K2.6']}
             value={cbiFormData.model}
             onChange={(val) => setCbiFormData({ ...cbiFormData, model: val })}
             icon={<Cpu className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}
           />
-          */}
 
           {/* CBI: Query */}
           <div className="space-y-2">

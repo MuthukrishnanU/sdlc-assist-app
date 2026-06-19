@@ -1734,7 +1734,7 @@ const MainSection: React.FC<MainSectionProps> = ({
         {/* HEADER */}
         <header className="flex justify-between items-center">
           <h1 className={`text-2xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-axis-red'}`}>
-            {activeTab === 'sdlc' ? 'Code Output & DQ Insights' : 'Code Output & Query Plan'}
+            {activeTab === 'sdlc' ? 'Code Output & Data Profiling Insights' : 'Query Plan & Code Output'}
           </h1>
           <div className="flex items-center gap-3">
             <button
@@ -1907,8 +1907,8 @@ const MainSection: React.FC<MainSectionProps> = ({
                   ) : (
                     <CheckSquare className="w-4 h-4" />
                   )}
-                  {testCases.length > 0 
-                    ? (showTestCasesSection ? 'Hide Test Cases' : 'Show Test Cases') 
+                  {testCases.length > 0
+                    ? (showTestCasesSection ? 'Hide Test Cases' : 'Show Test Cases')
                     : 'Generate Test Cases'}
                 </button>
 
@@ -2201,7 +2201,7 @@ const MainSection: React.FC<MainSectionProps> = ({
               <section className="space-y-4 animate-in fade-in duration-300">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                   <div className={`flex items-center gap-2 font-semibold uppercase text-xs tracking-widest ${isDark ? 'text-axis-cream' : 'text-axis-red'}`}>
-                    <Activity className="w-4 h-4" /> Data Quality Insights
+                    <Activity className="w-4 h-4" /> Data Profiling Insights
                   </div>
                   {formData?.tables && formData.tables.length > 0 && (
                     <div className="flex flex-wrap items-center gap-3">
@@ -2295,15 +2295,10 @@ const MainSection: React.FC<MainSectionProps> = ({
                     </div>
                   ) : flowExplanation ? (
                     <ol className="list-decimal pl-5 space-y-2 text-xs font-medium">
-                      {(flowExplanation.includes(':')) ? flowExplanation
-                        .split(':')
-                        .map(s => s.trim())
-                        .filter(Boolean)
-                        .map((sentence, idx) => (
-                          <li key={idx} className="leading-relaxed">
-                            {sentence}.
-                          </li>
-                        ))
+                      {(flowExplanation.includes('1.')) ? (
+                        <pre className="whitespace-pre-wrap text-xs font-medium leading-relaxed p-4 rounded-xl bg-white/5 border border-white/5">
+                          {flowExplanation}
+                        </pre>)
                         : (
                           flowExplanation
                             .split('.')
@@ -2444,8 +2439,8 @@ const MainSection: React.FC<MainSectionProps> = ({
                   ) : (
                     <CheckSquare className="w-4 h-4" />
                   )}
-                  {testCases.length > 0 
-                    ? (showTestCasesSection ? 'Hide Test Cases' : 'Show Test Cases') 
+                  {testCases.length > 0
+                    ? (showTestCasesSection ? 'Hide Test Cases' : 'Show Test Cases')
                     : 'Generate Test Cases'}
                 </button>
 
@@ -2611,7 +2606,7 @@ const MainSection: React.FC<MainSectionProps> = ({
               <section className="space-y-4 animate-in fade-in duration-300">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                   <div className={`flex items-center gap-2 font-semibold uppercase text-xs tracking-widest ${isDark ? 'text-axis-cream' : 'text-axis-red'}`}>
-                    <Activity className="w-4 h-4" /> Data Quality Insights
+                    <Activity className="w-4 h-4" /> Data Profiling Insights
                   </div>
                   {formData?.tables && formData.tables.length > 0 && (
                     <div className="flex flex-wrap items-center gap-3">

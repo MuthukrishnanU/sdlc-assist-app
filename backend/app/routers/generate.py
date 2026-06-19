@@ -70,7 +70,7 @@ async def estimate_tokens(request: CodeGenerationRequest):
         
         # Dynamically decide model via supervisor
         from ..agents.supervisor import supervisor_decide_models
-        decisions = supervisor_decide_models(request.logic, request.format, request.tables)
+        decisions = supervisor_decide_models(request.logic, request.format, request.tables, request.model)
         model_key = decisions["code_generation"]["model"]
             
         # Check quota status before doing the estimate
@@ -253,7 +253,7 @@ async def generate_code(request: CodeGenerationRequest):
         
         # Dynamically decide model via supervisor
         from ..agents.supervisor import supervisor_decide_models
-        decisions = supervisor_decide_models(request.logic, request.format, request.tables)
+        decisions = supervisor_decide_models(request.logic, request.format, request.tables, request.model)
         model_key = decisions["code_generation"]["model"]
         request.model = model_key
         
