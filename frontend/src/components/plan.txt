@@ -558,6 +558,14 @@ So, the choice of LLM must be made on the basis of user choice only.
 In the supervisor.py agent, do not remove the "supervisor_decide_models" method.
 Simply replace the "code_gen_model" and "fallback_model" variables' values with the user selected LLM model.
 
+ToDo19Jun26:
+(1) Columns Correction:
+The query or "Login in English" must be smartly analyzed through the available tables schemas or semanticMetaStore and optimized to generate code for only the required columns.
+In SDLC Assist page, the generated code is fine (because the user is providing the exact column names).
+However, in Conversational BI page, the generated code is not optimized to generate code for only the required columns (many extra columns are generated).
+This causes a lot of bad user experience as the data size increases exponentially and simulation fails.
+Please provide the solution for the same.
+
 ToDoLater:
 (1) Framework Implementation:
 I want to implement a "Framework Establishment" feature for admin.

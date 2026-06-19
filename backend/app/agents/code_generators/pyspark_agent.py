@@ -42,7 +42,7 @@ async def generate_pyspark(request, schema_context: str) -> dict:
        - Store the final output in a DataFrame named `result_df` (or `final_df` / `df`).
     2. If the format is "SparkSQL":
        - Wrap SQL execution inside `spark.sql('''SELECT ...''')`.
-    3. The code MUST project all columns specified in the 'Columns' list: {", ".join(request.columns)}.
+    3. The code should project only the columns necessary to satisfy the query logic (using the provided schemas as context) out of the specified 'Columns' list: {", ".join(request.columns)}. Avoid selecting unused or redundant columns in the final output.
     4. Compute any derived, aggregated, or bucketed columns requested in the 'Logic' and project them.
     5. Deduplication Rule: To prevent row duplication when joining a detail table (like `transactionsInfo`) to customer-level tables, deduplicate the dataset by using window functions or calling `.dropDuplicates(["customer_id"])` on the final DataFrame. Always use a left join to preserve customer records.    
     Return the response as a JSON object with exactly these keys:

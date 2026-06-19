@@ -75,7 +75,7 @@ async def estimate_tokens(request: CodeGenerationRequest):
             
         # Check quota status before doing the estimate
         if request.role:
-            resolve_domains_if_needed(request, db)
+            await resolve_domains_if_needed(request, db)
             quota = get_or_create_quota(db, request.role)
             
             # Check model tokens limit
@@ -94,7 +94,7 @@ async def estimate_tokens(request: CodeGenerationRequest):
 
         schema_context = ""
         try:
-            resolve_domains_if_needed(request, db)
+            await resolve_domains_if_needed(request, db)
             schema_docs = list(db['semanticMetaStore'].find({"collection_name": {"$in": request.tables}}))
             
             schema_context_list = []
@@ -257,7 +257,7 @@ async def generate_code(request: CodeGenerationRequest):
         model_key = decisions["code_generation"]["model"]
         request.model = model_key
         
-        resolve_domains_if_needed(request, db)
+        await resolve_domains_if_needed(request, db)
             
         if role:
             quota = get_or_create_quota(db, role)
@@ -343,7 +343,7 @@ async def generate_code(request: CodeGenerationRequest):
 async def validate_input_guardrails_endpoint(request: CodeGenerationRequest):
     try:
         db = get_db()
-        resolve_domains_if_needed(request, db)
+        await resolve_domains_if_needed(request, db)
         
         checked = []
         

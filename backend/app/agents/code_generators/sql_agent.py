@@ -37,7 +37,7 @@ async def generate_sql(request, schema_context: str) -> dict:
     SQL Formatting Instructions:
     1. Generate a single, clean raw SQL query only. Do not wrap in python functions or variables.
     2. ALWAYS use the exact case-sensitive table names and column names as defined in the schemas above.
-    3. The SQL query MUST project all the columns specified in the 'Columns' list: {", ".join(request.columns)}.
+    3. The SQL query should project only the columns necessary to satisfy the query logic (using the provided schemas as context) out of the specified 'Columns' list: {", ".join(request.columns)}. Avoid selecting unused or redundant columns in the final output.
     4. Compute any derived, aggregated, or bucketed columns requested in the 'Logic' and add them to the select statement.
     5. Deduplication Rule: To prevent row duplication when joining a detail table (like `transactionsInfo`) to customer-level tables, deduplicate the detail table before joining it by using a CTE (Common Table Expression) or subquery with `ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY timestamp DESC) as rn` and filtering for `rn = 1`. Always use `LEFT JOIN` so customers with no transactions are not dropped.    
     Return the response as a JSON object with exactly these keys:

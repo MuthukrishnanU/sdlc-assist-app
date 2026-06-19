@@ -37,7 +37,7 @@ async def generate_plsql(request, schema_context: str) -> dict:
     PL/SQL Formatting Instructions:
     1. Generate a single Oracle PL/SQL block utilizing `DECLARE`, `BEGIN`, and `END;`.
     2. Define cursors to query the tables.
-    3. The code MUST query and fetch all columns specified in the 'Columns' list: {", ".join(request.columns)}.
+    3. The code should query and fetch only the columns necessary to satisfy the query logic (using the provided schemas as context) out of the specified 'Columns' list: {", ".join(request.columns)}. Avoid selecting unused or redundant columns in the final output.
     4. Compute any derived, aggregated, or bucketed columns requested in the 'Logic' and assign them to variables or fetch them in the cursor.
     5. Deduplication Rule: To prevent row duplication when joining a detail table (like `transactionsInfo`) to customer-level tables, deduplicate the detail table inside the cursor select query by using a subquery with `ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY timestamp DESC) as rn` and filtering for `rn = 1`.    
     Return the response as a JSON object with exactly these keys:

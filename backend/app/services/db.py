@@ -63,29 +63,187 @@ def get_or_create_quota(db, role: str) -> dict:
                 
     return quota
 
-def resolve_domains_if_needed(request: CodeGenerationRequest, db_inst):
+async def resolve_domains_if_needed(request: CodeGenerationRequest, db_inst):
     if not request.sample_data_size or request.sample_data_size <= 0:
         request.sample_data_size = 1000
         
     if not request.tables and request.domains:
+        print("No Tables and Only Domains in Request")
         cursor = db_inst["tableStatusNew"].find({
             "approvalStatus": "approved",
             "domain": {"$in": request.domains}
         })
         tables_in_domains = [doc["tableName"] for doc in cursor]
-        
-        all_cols = []
+        if not tables_in_domains:
+            request.tables = []
+            request.columns = []
+            return
+
+        # Fetch schema details for all tables in the domains
+        schemas_str_list = []
+        schemas_map = {} # map table -> columns
         for t_name in tables_in_domains:
             meta_doc = db_inst["semanticMetaStore"].find_one({"collection_name": t_name})
+            columns = []
+            fields_desc = []
             if meta_doc and "fields" in meta_doc:
-                all_cols.extend([f["field_name"] for f in meta_doc["fields"]])
+                for f in meta_doc["fields"]:
+                    f_name = f.get("field_name")
+                    f_type = f.get("data_type")
+                    f_desc = f.get("description", "")
+                    columns.append(f_name)
+                    fields_desc.append(f"- {f_name} ({f_type}): {f_desc}")
             else:
                 sample_doc = db_inst[t_name].find_one()
                 if sample_doc:
-                    all_cols.extend([k for k in sample_doc.keys() if k != "_id"])
-                    
-        request.tables = tables_in_domains
-        request.columns = list(set(all_cols))
+                    for k in sample_doc.keys():
+                        if k != "_id":
+                            columns.append(k)
+                            fields_desc.append(f"- {k} (string)")
+            schemas_map[t_name] = columns
+            
+            schema_info = f"Table: {t_name}\nColumns:\n" + "\n".join(fields_desc)
+            schemas_str_list.append(schema_info)
+
+        schemas_str = "\n\n".join(schemas_str_list)
+
+        # Call LLM to analyze user's logic query and select only necessary tables and columns
+        analysis_prompt = f"""
+        You are an expert Data Architect.
+        Analyze the user's query and the schemas of the available tables to select ONLY the tables and columns that are strictly necessary to fulfill the request.
+        
+        User Query: "{request.logic}"
+        Target Format: {request.format}
+        
+        Available Tables and Column Schemas:
+        {schemas_str}
+        
+        Instructions:
+        1. Identify which tables are needed to retrieve the requested data.
+        2. Identify which columns from those tables are needed (e.g., for selection, joining, filtering, grouping, or aggregation).
+        3. Do NOT include irrelevant tables or columns (like log tables or details not requested).
+        4. Always ensure you include primary keys / foreign keys (like customer_id) needed to join the selected tables.
+        
+        Return the response as a JSON object with this exact schema:
+        {{
+            "tables": ["table_name_1", "table_name_2"],
+            "columns": ["col_1", "col_2"]
+        }}
+        """
+
+        model_name = request.model or "gpt-4o"
+        try:
+            from ..agents.llm import call_llm, parse_llm_json
+            content, _, _ = await call_llm(analysis_prompt, model_name, response_format_json=True)
+            res = parse_llm_json(content)
+            selected_tables = res.get("tables", [])
+            selected_columns = res.get("columns", [])
+            
+            # Sanity checks: make sure selected tables/columns exist in the schemas
+            valid_tables = [t for t in selected_tables if t in tables_in_domains]
+            if not valid_tables:
+                # Fallback to all tables if nothing valid selected
+                valid_tables = tables_in_domains
+                valid_columns = []
+                for t in valid_tables:
+                    valid_columns.extend(schemas_map[t])
+            else:
+                # Filter columns to only those belonging to valid_tables
+                valid_columns = []
+                all_valid_cols = []
+                for t in valid_tables:
+                    all_valid_cols.extend(schemas_map[t])
+                for col in selected_columns:
+                    if col in all_valid_cols:
+                        valid_columns.append(col)
+                # If no valid columns were selected, default to all columns of valid tables
+                if not valid_columns:
+                    valid_columns = all_valid_cols
+
+            request.tables = valid_tables
+            request.columns = list(set(valid_columns))
+        except Exception as e:
+            print(f"[WARNING] Dynamic schema routing failed: {e}. Falling back to full domain schemas.")
+            # Fallback to all tables & columns
+            all_cols = []
+            for t_name in tables_in_domains:
+                all_cols.extend(schemas_map[t_name])
+            request.tables = tables_in_domains
+            request.columns = list(set(all_cols))
+
+    elif request.tables and not request.columns:
+        print("Only Tables and No Columns in Request")
+        # Fetch schemas of the selected tables
+        schemas_str_list = []
+        schemas_map = {}
+        for t_name in request.tables:
+            meta_doc = db_inst["semanticMetaStore"].find_one({"collection_name": t_name})
+            columns = []
+            fields_desc = []
+            if meta_doc and "fields" in meta_doc:
+                for f in meta_doc["fields"]:
+                    f_name = f.get("field_name")
+                    f_type = f.get("data_type")
+                    f_desc = f.get("description", "")
+                    columns.append(f_name)
+                    fields_desc.append(f"- {f_name} ({f_type}): {f_desc}")
+            else:
+                sample_doc = db_inst[t_name].find_one()
+                if sample_doc:
+                    for k in sample_doc.keys():
+                        if k != "_id":
+                            columns.append(k)
+                            fields_desc.append(f"- {k} (string)")
+            schemas_map[t_name] = columns
+            
+            schema_info = f"Table: {t_name}\nColumns:\n" + "\n".join(fields_desc)
+            schemas_str_list.append(schema_info)
+
+        schemas_str = "\n\n".join(schemas_str_list)
+
+        analysis_prompt = f"""
+        You are an expert Data Architect.
+        Analyze the user's query and the schemas of the available tables to select ONLY the columns that are strictly necessary to fulfill the request.
+        
+        User Query: "{request.logic}"
+        Target Format: {request.format}
+        
+        Available Tables and Column Schemas:
+        {schemas_str}
+        
+        Instructions:
+        1. Identify which columns from the selected tables are needed (e.g., for selection, joining, filtering, grouping, or aggregation).
+        2. Always ensure you include primary keys / foreign keys (like customer_id) needed to join the tables.
+        
+        Return the response as a JSON object with this exact schema:
+        {{
+            "columns": ["col_1", "col_2"]
+        }}
+        """
+
+        model_name = request.model or "gpt-4o"
+        try:
+            from ..agents.llm import call_llm, parse_llm_json
+            content, _, _ = await call_llm(analysis_prompt, model_name, response_format_json=True)
+            res = parse_llm_json(content)
+            selected_columns = res.get("columns", [])
+            
+            # Validate selected columns
+            all_valid_cols = []
+            for t in request.tables:
+                all_valid_cols.extend(schemas_map[t])
+            valid_columns = [col for col in selected_columns if col in all_valid_cols]
+            
+            if not valid_columns:
+                valid_columns = all_valid_cols
+                
+            request.columns = list(set(valid_columns))
+        except Exception as e:
+            print(f"[WARNING] Dynamic column routing failed: {e}. Falling back to all columns of selected tables.")
+            all_cols = []
+            for t in request.tables:
+                all_cols.extend(schemas_map[t])
+            request.columns = list(set(all_cols))
 
 def clean_column_name(name: str) -> str:
     import re
