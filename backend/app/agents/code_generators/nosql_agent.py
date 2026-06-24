@@ -13,6 +13,12 @@ async def generate_nosql(request, schema_context: str) -> dict:
     Map legacy tables and fields to the schema defined below. If no schemas are provided, infer table structure from legacy logic.
     """
 
+    is_cbi = getattr(request, "active_tab", None) == "cbi"
+    if is_cbi:
+        column_projection_instruction = f"The code should project only the columns necessary to satisfy the query logic (using the provided schemas as context) out of the specified 'Columns' list: {', '.join(request.columns)}. Avoid selecting unused or redundant columns in the final output."
+    else:
+        column_projection_instruction = f"The code MUST project, select, and output all the columns specified in the 'Columns' list: {', '.join(request.columns)}, in addition to any computed or derived columns required by the logic. Do NOT omit any columns from the 'Columns' list in the final query or pipeline projection (e.g. inside the `$project` stage)."
+
     prompt = f"""
     You are an expert database engineer specializing in NoSQL databases (specifically MongoDB aggregation pipelines/queries and Google Cloud Firestore Python SDK queries).
     {conversion_prompt}
@@ -40,7 +46,7 @@ async def generate_nosql(request, schema_context: str) -> dict:
        - Use stages like `$lookup` (for joins), `$match` (for filters), `$project` (for column selection), `$group` (for aggregates).
     2. If the format requested is "Firestore NoSQL" (or Firebase/Firestore):
        - Generate Python Firestore SDK queries using `db.collection(...)`.
-    3. The code should project only the columns necessary to satisfy the query logic (using the provided schemas as context) out of the specified 'Columns' list: {", ".join(request.columns)}. Avoid selecting unused or redundant columns in the final output.
+    3. {column_projection_instruction}
     4. Compute any derived, aggregated, or bucketed columns requested in the 'Logic' and project them.
     5. Deduplication Rule: To prevent row duplication when joining a detail collection, ensure the lookup array is deduplicated or matches the primary document row count correctly.    
     Return the response as a JSON object with exactly these keys:

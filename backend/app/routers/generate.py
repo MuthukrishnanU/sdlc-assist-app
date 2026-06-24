@@ -65,7 +65,8 @@ async def estimate_tokens(request: CodeGenerationRequest):
             logic_prompt=request.logic,
             tables=request.tables,
             columns=request.columns,
-            is_conversion=getattr(request, "is_conversion", False)
+            is_conversion=getattr(request, "is_conversion", False),
+            model=request.model
         )
         
         # Dynamically decide model via supervisor
@@ -170,7 +171,8 @@ async def generate_code(request: CodeGenerationRequest):
             logic_prompt=request.logic,
             tables=request.tables,
             columns=request.columns,
-            is_conversion=getattr(request, "is_conversion", False)
+            is_conversion=getattr(request, "is_conversion", False),
+            model=request.model
         )
         
         role = request.role
@@ -450,9 +452,21 @@ async def validate_input_guardrails_endpoint(request: CodeGenerationRequest):
             passed_pii_access = False
             error_pii_access = f"PII validation failed: {str(pii_err)}"
             checked.append({"name": "PII Access Protection", "status": "Failed", "message": error_pii_access})
+            
+        # 6. Domain Relevance Guardrail
+        passed_relevance = True
+        error_relevance = None
+        try:
+            from ..guardrails.relevance import validate_domain_relevance
+            await validate_domain_relevance(request.logic, request.tables, request.columns, request.model)
+            checked.append({"name": "Domain Relevance Guardrail", "status": "Passed"})
+        except HTTPException as he:
+            passed_relevance = False
+            error_relevance = he.detail
+            checked.append({"name": "Domain Relevance Guardrail", "status": "Failed", "message": error_relevance})
 
-        passed = passed_pi and passed_bypass and passed_profanity and passed_cmd and passed_schema and passed_pii_access
-        first_error = error_pi or error_bypass or error_profanity or error_cmd or error_schema or error_pii_access
+        passed = passed_pi and passed_bypass and passed_profanity and passed_cmd and passed_schema and passed_pii_access and passed_relevance
+        first_error = error_pi or error_bypass or error_profanity or error_cmd or error_schema or error_pii_access or error_relevance
         
         return {
             "passed": passed,

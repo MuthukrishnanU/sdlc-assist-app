@@ -14,6 +14,12 @@ async def generate_sparksql(request, schema_context: str) -> dict:
     Map legacy tables and fields to the schema defined below. If no schemas are provided, infer table structure from legacy logic.
     """
 
+    is_cbi = getattr(request, "active_tab", None) == "cbi"
+    if is_cbi:
+        column_projection_instruction = f"The SQL query inside spark.sql(...) should project only the columns necessary to satisfy the query logic (using the provided schemas as context) out of the specified 'Columns' list: {', '.join(request.columns)}. Avoid selecting unused or redundant columns in the final output."
+    else:
+        column_projection_instruction = f"The SQL query inside spark.sql(...) MUST project, select, and output all the columns specified in the 'Columns' list: {', '.join(request.columns)}, in addition to any computed or derived columns required by the logic. Do NOT omit any columns from the 'Columns' list in the final query select projection."
+
     prompt = f"""
     You are an expert Data Engineer specializing in Apache Spark and SparkSQL.
     {conversion_prompt}
@@ -39,7 +45,7 @@ async def generate_sparksql(request, schema_context: str) -> dict:
     1. Generate Python code that executes SQL using the Spark Session (e.g. `result_df = spark.sql('''SELECT ...''')`).
     2. Store the final output DataFrame in a variable named `result_df` (or `final_df` / `df`).
     3. Initialize/use the global `spark` session object directly without re-creating it.
-    4. The SQL query inside `spark.sql(...)` should project only the columns necessary to satisfy the query logic (using the provided schemas as context) out of the specified 'Columns' list: {", ".join(request.columns)}. Avoid selecting unused or redundant columns in the final output.
+    4. {column_projection_instruction}
     5. Compute any derived, aggregated, or bucketed columns requested in the 'Logic' and project them in the SQL select statement.
     6. Deduplication Rule: To prevent row duplication when joining a detail table (like `transactionsInfo`) to customer-level tables, deduplicate the detail table before joining it by using a CTE (Common Table Expression) or subquery with `ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY timestamp DESC) as rn` and filtering for `rn = 1`. Always use `LEFT JOIN` so customers with no transactions are not dropped.
     

@@ -13,6 +13,12 @@ async def generate_sql(request, schema_context: str) -> dict:
     Map legacy tables and fields to the schema defined below. If no schemas are provided, infer table structure from legacy logic.
     """
 
+    is_cbi = getattr(request, "active_tab", None) == "cbi"
+    if is_cbi:
+        column_projection_instruction = f"The SQL query should project only the columns necessary to satisfy the query logic (using the provided schemas as context) out of the specified 'Columns' list: {', '.join(request.columns)}. Avoid selecting unused or redundant columns in the final output."
+    else:
+        column_projection_instruction = f"The SQL query MUST project, select, and output all the columns specified in the 'Columns' list: {', '.join(request.columns)}, in addition to any computed or derived columns required by the logic. Do NOT omit any columns from the 'Columns' list in the final query select projection."
+
     prompt = f"""
     You are an expert Data Engineer specializing in relational SQL database systems (SQL, PostgreSQL, MySQL, BigQuery, Snowflake, Oracle, Apache Iceberg).
     {conversion_prompt}
@@ -37,7 +43,7 @@ async def generate_sql(request, schema_context: str) -> dict:
     SQL Formatting Instructions:
     1. Generate a single, clean raw SQL query only. Do not wrap in python functions or variables.
     2. ALWAYS use the exact case-sensitive table names and column names as defined in the schemas above.
-    3. The SQL query should project only the columns necessary to satisfy the query logic (using the provided schemas as context) out of the specified 'Columns' list: {", ".join(request.columns)}. Avoid selecting unused or redundant columns in the final output.
+    3. {column_projection_instruction}
     4. Compute any derived, aggregated, or bucketed columns requested in the 'Logic' and add them to the select statement.
     5. Deduplication Rule: To prevent row duplication when joining a detail table (like `transactionsInfo`) to customer-level tables, deduplicate the detail table before joining it by using a CTE (Common Table Expression) or subquery with `ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY timestamp DESC) as rn` and filtering for `rn = 1`. Always use `LEFT JOIN` so customers with no transactions are not dropped.    
     Return the response as a JSON object with exactly these keys:

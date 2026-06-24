@@ -5,7 +5,7 @@ from .schema_protect import validate_schema_access
 from .data_privacy import mask_sensitive_dataframe
 from .ddl_prevention import validate_sql_readonly
 
-async def run_input_guardrails(userId: str, role: str, logic_prompt: str, tables: list, columns: list, is_conversion: bool = False) -> str:
+async def run_input_guardrails(userId: str, role: str, logic_prompt: str, tables: list, columns: list, is_conversion: bool = False, model: str = "gpt-4o") -> str:
     """
     Applies input-level guardrails before LLM generation.
     Returns the redacted prompt.
@@ -24,6 +24,10 @@ async def run_input_guardrails(userId: str, role: str, logic_prompt: str, tables
     # Guardrail 2: SQL & Command Injection Block in natural language logic
     if not is_conversion:
         validate_command_injection(logic_prompt)
+    
+    # Domain Relevance Guardrail: Block irrelevant queries (e.g. general math, general knowledge)
+    from .relevance import validate_domain_relevance
+    await validate_domain_relevance(logic_prompt, tables, columns, model)
     
     # Guardrail 4: Schema Protection (Verifies user access to table domains & columns)
     validate_schema_access(userId, tables, columns)
