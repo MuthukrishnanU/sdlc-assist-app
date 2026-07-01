@@ -1,5 +1,5 @@
 import React from 'react';
-import { Terminal, Activity, Rocket, GitBranch, CheckCircle2, Search, Info, Database, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, Download, Save, X, Cpu, Coins, Moon, Sun, AlertCircle, CheckSquare, Copy, Check } from 'lucide-react';
+import { Terminal, Activity, Rocket, GitBranch, CheckCircle2, Search, Info, Database, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, Download, Save, X, Cpu, Coins, Moon, Sun, AlertCircle, CheckSquare, Copy, Check, Edit2 } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import axios from 'axios';
 //import MultiSelect from './MultiSelect';
@@ -49,11 +49,83 @@ const MainSection: React.FC<MainSectionProps> = ({
   const [simulationData, setSimulationData] = React.useState<any>(null);
   const [simulatedData, setSimulatedData] = React.useState<any[]>([]);
   const [columnDetailsMap, setColumnDetailsMap] = React.useState<Record<string, any>>({});
+  const [allTablesData, setAllTablesData] = React.useState<Record<string, any[]>>({});
+  const [selectedPreviewTable, setSelectedPreviewTable] = React.useState<string>("Output Table");
+  const [originalColumnDetailsMap, setOriginalColumnDetailsMap] = React.useState<Record<string, any>>({});
   const [searchQuery, setSearchQuery] = React.useState('');
   const [smartFilterQuery, setSmartFilterQuery] = React.useState('');
   const [sortColumn, setSortColumn] = React.useState<string | null>(null);
   const [sortDirection, setSortDirection] = React.useState<'asc' | 'desc' | null>(null);
   const [selectedColumn, setSelectedColumn] = React.useState('');
+  const [editableCode, setEditableCode] = React.useState<string>('');
+  const [isEditModalOpen, setIsEditModalOpen] = React.useState(false);
+  const [modalCodeValue, setModalCodeValue] = React.useState('');
+  const [showLineage, setShowLineage] = React.useState(false);
+  const [hoveredTargetCol, setHoveredTargetCol] = React.useState<string | null>(null);
+
+  const [dqConfigParams, setDqConfigParams] = React.useState<any[]>([]);
+  const [selectedDqParams, setSelectedDqParams] = React.useState<string[]>([]);
+  const [isDqParamsDropdownOpen, setIsDqParamsDropdownOpen] = React.useState(false);
+  const [calculatedDqMetrics, setCalculatedDqMetrics] = React.useState<Record<string, any>>({});
+  const [isCalculatingDq, setIsCalculatingDq] = React.useState(false);
+
+  const handleGenerateDqInsights = async () => {
+    if (!selectedDqTable || !selectedDqColumn) {
+      alert("Please select a table and column first.");
+      return;
+    }
+    setIsCalculatingDq(true);
+    try {
+      const response = await axios.post(`${apiBaseUrl}/dq-insights/calculate`, {
+        table_name: selectedDqTable,
+        column_name: selectedDqColumn,
+        metrics: selectedDqParams,
+        all_tables_data: allTablesData
+      });
+      setCalculatedDqMetrics(response.data);
+    } catch (err) {
+      console.error("Failed to generate DQ Insights:", err);
+      alert("Failed to generate DQ Insights.");
+    } finally {
+      setIsCalculatingDq(false);
+    }
+  };
+
+  const fetchDqConfigParams = React.useCallback(async () => {
+    try {
+      const response = await axios.get(`${apiBaseUrl}/dq-insights/parameters`);
+      const active = response.data.filter((p: any) => p.status === 'Active');
+      setDqConfigParams(active);
+      const defaultKeys = ['row_count', 'null_values', 'distinct_values', 'duplicate_rows'];
+      const availableDefaults = active.filter((p: any) => defaultKeys.includes(p.key)).map((p: any) => p.key);
+      setSelectedDqParams(availableDefaults.length > 0 ? availableDefaults : active.slice(0, 4).map((p: any) => p.key));
+    } catch (err) {
+      console.error('Failed to load DQ parameters configuration:', err);
+    }
+  }, [apiBaseUrl]);
+
+  React.useEffect(() => {
+    fetchDqConfigParams();
+  }, [fetchDqConfigParams]);
+
+  React.useEffect(() => {
+    if (code) {
+      setEditableCode(code);
+    } else {
+      setEditableCode('');
+    }
+  }, [code]);
+
+  const handleOpenEditModal = () => {
+    setModalCodeValue(editableCode);
+    setIsEditModalOpen(true);
+  };
+
+  const handleUpdateCode = () => {
+    setEditableCode(modalCodeValue);
+    setIsEditModalOpen(false);
+  };
+
   const [isSimulating, setIsSimulating] = React.useState(false);
   const [isPushing, setIsPushing] = React.useState(false);
   const [currentPage, setCurrentPage] = React.useState(1);
@@ -107,8 +179,8 @@ const MainSection: React.FC<MainSectionProps> = ({
   const copyTimeoutRef = React.useRef<any>(null);
 
   const handleCopyCode = () => {
-    if (!code) return;
-    navigator.clipboard.writeText(code).then(() => {
+    if (!editableCode) return;
+    navigator.clipboard.writeText(editableCode).then(() => {
       setIsCopied(true);
       setShowToast(true);
       if (copyTimeoutRef.current) {
@@ -155,6 +227,11 @@ const MainSection: React.FC<MainSectionProps> = ({
     setSortDirection(null);
     setSelectedColumn('');
     setCurrentPage(1);
+    setAllTablesData({});
+    setOriginalColumnDetailsMap({});
+    setSelectedPreviewTable('Output Table');
+    setShowLineage(false);
+    setHoveredTargetCol(null);
     setIsExplanationOpen(false);
     setXAxisParam('');
     setYAxisParam('');
@@ -378,6 +455,11 @@ const MainSection: React.FC<MainSectionProps> = ({
     setSelectedColumn('');
     setIsPushing(false);
     setCurrentPage(1);
+    setAllTablesData({});
+    setOriginalColumnDetailsMap({});
+    setSelectedPreviewTable('Output Table');
+    setShowLineage(false);
+    setHoveredTargetCol(null);
     setOutputGuardrailsStatus(null);
     setIsOutputGuardrailsModalOpen(false);
     setInsightsList([]);
@@ -397,12 +479,14 @@ const MainSection: React.FC<MainSectionProps> = ({
   }, [code, insights]);
 
   React.useEffect(() => {
-    if (!simulationData) {
+    setCalculatedDqMetrics({});
+    const tableData = allTablesData[selectedDqTable] || [];
+    if (tableData.length === 0) {
       setSelectedDqColumn('');
       return;
     }
-    const cols = Object.keys(simulationData.column_dq_insights?.[selectedDqTable] || {});
-    const pk = simulationData.primary_keys?.[selectedDqTable];
+    const cols = Object.keys(tableData[0] || {});
+    const pk = simulationData?.primary_keys?.[selectedDqTable];
     if (pk && cols.includes(pk)) {
       setSelectedDqColumn(pk);
     } else if (cols.length > 0) {
@@ -410,12 +494,17 @@ const MainSection: React.FC<MainSectionProps> = ({
     } else {
       setSelectedDqColumn('');
     }
-  }, [selectedDqTable, simulationData]);
+  }, [selectedDqTable, allTablesData, simulationData]);
+
+  React.useEffect(() => {
+    setCalculatedDqMetrics({});
+  }, [selectedDqColumn]);
 
   const availableDqColumns = React.useMemo(() => {
-    if (!simulationData) return [];
-    return Object.keys(simulationData.column_dq_insights?.[selectedDqTable] || {});
-  }, [selectedDqTable, simulationData]);
+    const tableData = allTablesData[selectedDqTable] || [];
+    if (tableData.length === 0) return [];
+    return Object.keys(tableData[0] || {});
+  }, [selectedDqTable, allTablesData]);
 
   const activeInsights = React.useMemo(() => {
     if (!simulationData) return null;
@@ -440,6 +529,136 @@ const MainSection: React.FC<MainSectionProps> = ({
       }
     }
   };
+
+  const handleExportLineage = () => {
+    const svgEl = document.getElementById("lineage-svg") as unknown as SVGSVGElement | null;
+    if (!svgEl) return;
+
+    const clonedSvg = svgEl.cloneNode(true) as SVGElement;
+    clonedSvg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+
+    const copyStyles = (src: Element, dest: Element) => {
+      const srcStyles = window.getComputedStyle(src);
+      const props = ['fill', 'stroke', 'font-family', 'font-size', 'font-weight', 'stroke-width', 'opacity'];
+      props.forEach(prop => {
+        const val = srcStyles.getPropertyValue(prop);
+        if (val) {
+          (dest as HTMLElement).style.setProperty(prop, val);
+        }
+      });
+      for (let i = 0; i < src.children.length; i++) {
+        copyStyles(src.children[i], dest.children[i]);
+      }
+    };
+    copyStyles(svgEl, clonedSvg);
+
+    const bbox = svgEl.getBoundingClientRect();
+    const exportWidth = bbox.width || 1000;
+    const exportHeight = bbox.height || 600;
+
+    const scale = 2;
+    const canvasWidth = exportWidth * scale;
+    const canvasHeight = exportHeight * scale;
+
+    clonedSvg.setAttribute("width", String(exportWidth));
+    clonedSvg.setAttribute("height", String(exportHeight));
+
+    const svgData = new XMLSerializer().serializeToString(clonedSvg);
+    const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+    const svgUrl = URL.createObjectURL(svgBlob);
+
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvasWidth;
+      canvas.height = canvasHeight;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.scale(scale, scale);
+        ctx.fillStyle = isDark ? '#1a0d13' : '#f9fafb';
+        ctx.fillRect(0, 0, exportWidth, exportHeight);
+        ctx.drawImage(img, 0, 0, exportWidth, exportHeight);
+
+        const pngUrl = canvas.toDataURL("image/png");
+        const downloadLink = document.createElement("a");
+        downloadLink.href = pngUrl;
+        downloadLink.download = `data_lineage_${(new Date()).toLocaleString()}.png`;
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+      }
+      URL.revokeObjectURL(svgUrl);
+    };
+    img.src = svgUrl;
+  };
+
+  const handleGenerateLineage = () => {
+    setShowLineage(true);
+    setTimeout(() => {
+      const el = document.getElementById("lineage-svg");
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
+  };
+
+  const lineageNodes = React.useMemo(() => {
+    const targets = Object.keys(columnDetailsMap);
+    const uniqueSources: string[] = [];
+
+    targets.forEach(tgt => {
+      const lin = columnDetailsMap[tgt]?.lineage;
+      if (lin) {
+        const srcTables = lin.source_tables || [];
+        const srcCols = lin.source_columns || [];
+        srcCols.forEach((col: string, idx: number) => {
+          const tbl = srcTables[idx] || srcTables[0] || 'Unknown Table';
+          const key = `${tbl}.${col}`;
+          if (!uniqueSources.includes(key)) {
+            uniqueSources.push(key);
+          }
+        });
+      }
+    });
+
+    return { targets, uniqueSources };
+  }, [columnDetailsMap]);
+
+  const getColumnDetailsForTable = (tableName: string, cols: string[]) => {
+    const details: Record<string, any> = {};
+    cols.forEach(col => {
+      if (originalColumnDetailsMap && originalColumnDetailsMap[col]) {
+        details[col] = originalColumnDetailsMap[col];
+      } else {
+        details[col] = {
+          friendly_name: col.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+          description: `Attribute representing '${col}' in ${tableName}.`,
+          data_type: 'string',
+          role: col.includes('id') || col.includes('key') ? 'identifier' : 'dimension',
+          classification: 'public',
+          lineage: null
+        };
+      }
+    });
+    return details;
+  };
+
+  React.useEffect(() => {
+    if (!allTablesData || Object.keys(allTablesData).length === 0) return;
+    const data = allTablesData[selectedPreviewTable] || [];
+    setSimulatedData(data);
+
+    const cols = data.length > 0 ? Object.keys(data[0]) : [];
+    const newDetails = getColumnDetailsForTable(selectedPreviewTable, cols);
+    setColumnDetailsMap(newDetails);
+
+    if (cols.length > 0) {
+      const pk = cols.find(c => c.toLowerCase().includes('id') || c.toLowerCase().includes('key')) || cols[0];
+      setSelectedColumn(pk);
+    } else {
+      setSelectedColumn('');
+    }
+  }, [selectedPreviewTable, allTablesData, originalColumnDetailsMap]);
 
   const filteredRecords = React.useMemo(() => {
     let records = simulatedData.filter(row => {
@@ -513,15 +732,18 @@ const MainSection: React.FC<MainSectionProps> = ({
   }, [filteredRecords, currentPage]);
 
   const handleRunCode = async () => {
-    if (!code || !formData) return;
+    if (!editableCode || !formData) return;
     setIsSimulating(true);
+    setShowLineage(false);
+    setHoveredTargetCol(null);
+    setCalculatedDqMetrics({});
     try {
       const response = await axios.post(`${apiBaseUrl}/simulate`, {
         tables: formData.tables,
         columns: formData.columns,
         sample_data_size: formData.sample_data_size,
         logic: formData.logic,
-        generated_code: code,
+        generated_code: editableCode,
         format: formData.format,
         model: formData.model,
         role: user?.role,
@@ -537,6 +759,9 @@ const MainSection: React.FC<MainSectionProps> = ({
         setSubsetSize(10);
       }
       setColumnDetailsMap(response.data.column_details);
+      setOriginalColumnDetailsMap(response.data.column_details || {});
+      setAllTablesData(response.data.all_tables_data || { "Output Table": df });
+      setSelectedPreviewTable("Output Table");
       setOutputTableInsights(response.data.dq_insights);
       if (response.data.table_dq_insights) {
         setTableInsightsMap(response.data.table_dq_insights);
@@ -556,7 +781,11 @@ const MainSection: React.FC<MainSectionProps> = ({
       setPersonasList(response.data.personas || []);
     } catch (err) {
       console.error('Failed to run code simulation:', err);
-      alert('Failed to simulate output. Make sure MongoDB database is seeded and backend is running.');
+      let tempErrMsg = 'Failed to simulate output. Make sure MongoDB database is seeded and backend is running.';
+      if (!!err && !!err.response && !!err.response.data && !!err.response.data.detail) {
+        tempErrMsg = err.response.data.detail;
+      }
+      alert(tempErrMsg);
     } finally {
       setIsSimulating(false);
     }
@@ -571,7 +800,7 @@ const MainSection: React.FC<MainSectionProps> = ({
     try {
       const response = await axios.post(`${apiBaseUrl}/github/push`, {
         dataframe: simulatedData,
-        generated_code: code,
+        generated_code: editableCode,
         format: formData?.format,
         pod_name: podName,
         project_name: projectName,
@@ -1572,7 +1801,7 @@ const MainSection: React.FC<MainSectionProps> = ({
   };
 
   const handleStoreSemanticCache = async () => {
-    if (!code || !formData) return;
+    if (!editableCode || !formData) return;
     setIsStoringCache(true);
     try {
       const response = await axios.post(`${apiBaseUrl}/cache/store`, {
@@ -1580,7 +1809,7 @@ const MainSection: React.FC<MainSectionProps> = ({
         format: formData.format,
         tables: formData.tables,
         columns: formData.columns,
-        code: code,
+        code: editableCode,
         userId: user?.userId
       });
       alert(response.data.message || 'Stored in Semantic Cache successfully!');
@@ -1727,6 +1956,368 @@ const MainSection: React.FC<MainSectionProps> = ({
     );
   };
 
+  const renderLineageVisualizer = () => {
+    if (!showLineage) return null;
+    return (
+      <section className="space-y-4 mt-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <div className="flex items-center justify-between">
+          <div className={`flex items-center gap-2 font-semibold uppercase text-xs tracking-widest ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`}>
+            <GitBranch className="w-4 h-4 animate-pulse" /> Dynamic Column Lineage - Directed Acyclic Graphs (DAG)
+          </div>
+          <button
+            onClick={handleExportLineage}
+            className={`px-4 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition-all ${isDark
+              ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/30'
+              : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'}`}
+          >
+            <Download className="w-3.5 h-3.5" /> Export Lineage (PNG)
+          </button>
+        </div>
+
+        <div className={`rounded-2xl p-6 shadow-xl border overflow-x-auto transition-colors duration-400 ${isDark
+          ? 'bg-axis-burgundy-dark/40 border-white/10'
+          : 'bg-white border-gray-200'}`}>
+          <p className={`text-xs mb-6 ${isDark ? 'text-white/60' : 'text-gray-550'}`}>
+            Interactive visualization of data flow and columns mapping. Hover over any target column node on the right to trace its upstream source columns.
+          </p>
+
+          <div className="min-w-[1000px] flex justify-center">
+            <svg id="lineage-svg" width={1000} height={Math.max(450, Math.max(lineageNodes.uniqueSources.length * 70, lineageNodes.targets.length * 80) + 100)} className="overflow-visible select-none">
+              <defs>
+                <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
+                  <feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#000000" flood-opacity="0.1" />
+                </filter>
+                <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="3" result="blur" />
+                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                </filter>
+              </defs>
+
+              {/* Connections (Bézier curves) */}
+              <g>
+                {lineageNodes.targets.map((tgt, tIdx) => {
+                  const targetY = 50 + tIdx * 80 + 22.5;
+                  const transX1 = 400;
+                  const transX2 = 600;
+
+                  const lin = columnDetailsMap[tgt]?.lineage;
+                  if (!lin) return null;
+
+                  const srcTables = lin.source_tables || [];
+                  const srcCols = lin.source_columns || [];
+
+                  const isHovered = hoveredTargetCol === tgt;
+                  const isAnyHovered = hoveredTargetCol !== null;
+                  const pathOpacity = isAnyHovered ? (isHovered ? 1.0 : 0.08) : 0.5;
+                  const pathStroke = isHovered ? '#EB1165' : '#94A3B8';
+                  const strokeWidth = isHovered ? 3.5 : 1.5;
+
+                  return (
+                    <g key={`paths-${tgt}`}>
+                      <path
+                        d={`M ${transX2} ${targetY} C ${(transX2 + 730) / 2} ${targetY}, ${(transX2 + 730) / 2} ${targetY}, 730 ${targetY}`}
+                        fill="none"
+                        stroke={pathStroke}
+                        strokeWidth={strokeWidth}
+                        style={{ opacity: pathOpacity }}
+                        className="transition-all duration-300"
+                      />
+
+                      {srcCols.map((col: string, sIdx: number) => {
+                        const tbl = srcTables[sIdx] || srcTables[0] || 'Unknown Table';
+                        const key = `${tbl}.${col}`;
+                        const sourceIdx = lineageNodes.uniqueSources.indexOf(key);
+                        if (sourceIdx === -1) return null;
+
+                        const sourceY = 50 + sourceIdx * 70 + 22.5;
+
+                        return (
+                          <path
+                            key={`curve-${tgt}-${key}`}
+                            d={`M 270 ${sourceY} C ${(270 + transX1) / 2} ${sourceY}, ${(270 + transX1) / 2} ${targetY}, ${transX1} ${targetY}`}
+                            fill="none"
+                            stroke={pathStroke}
+                            strokeWidth={strokeWidth}
+                            style={{ opacity: pathOpacity }}
+                            className="transition-all duration-300"
+                          />
+                        );
+                      })}
+                    </g>
+                  );
+                })}
+              </g>
+
+              {/* Left Port Sources */}
+              <g>
+                {lineageNodes.uniqueSources.map((src, idx) => {
+                  const y = 50 + idx * 70;
+                  const [tbl, col] = src.split('.');
+                  return (
+                    <g key={src} className="transition-all duration-300">
+                      <rect
+                        x={50}
+                        y={y}
+                        width={220}
+                        height={45}
+                        rx={8}
+                        fill={isDark ? '#1e1b1e' : '#f8fafc'}
+                        stroke={isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0'}
+                        strokeWidth="1.5"
+                        filter="url(#shadow)"
+                      />
+                      <text x={65} y={y + 18} className="text-[10px] font-bold fill-axis-red opacity-80 uppercase tracking-wide">
+                        {tbl}
+                      </text>
+                      <text x={65} y={y + 33} className={`text-[12px] font-mono font-bold ${isDark ? 'fill-gray-100' : 'fill-gray-700'}`}>
+                        {col}
+                      </text>
+                      <circle cx={270} cy={y + 22.5} r={4} className="fill-axis-red" />
+                    </g>
+                  );
+                })}
+              </g>
+
+              {/* Middle Port Transforms */}
+              <g>
+                {lineageNodes.targets.map((tgt, idx) => {
+                  const y = 50 + idx * 80;
+                  const lin = columnDetailsMap[tgt]?.lineage;
+                  const transDesc = lin?.transformation || 'Direct data ingest copy';
+                  const truncatedDesc = transDesc.length > 25 ? `${transDesc.slice(0, 22)}...` : transDesc;
+
+                  const isHovered = hoveredTargetCol === tgt;
+                  const isAnyHovered = hoveredTargetCol !== null;
+                  const opacity = isAnyHovered ? (isHovered ? 1.0 : 0.2) : 1.0;
+
+                  return (
+                    <g key={`trans-${tgt}`} style={{ opacity }} className="transition-all duration-300">
+                      <rect
+                        x={400}
+                        y={y}
+                        width={200}
+                        height={45}
+                        rx={8}
+                        fill={isDark ? 'rgba(235,17,101,0.05)' : 'rgba(235,17,101,0.02)'}
+                        stroke={isHovered ? '#EB1165' : (isDark ? 'rgba(255,255,255,0.08)' : '#f1f5f9')}
+                        strokeWidth={isHovered ? 2 : 1}
+                        filter="url(#shadow)"
+                      />
+                      <text x={415} y={y + 18} className="text-[9px] font-bold fill-axis-red uppercase tracking-wider">
+                        Transformation
+                      </text>
+                      <text x={415} y={y + 33} className={`text-[11px] font-medium italic ${isDark ? 'fill-gray-300' : 'fill-gray-600'}`}>
+                        {truncatedDesc}
+                        <title>{transDesc}</title>
+                      </text>
+                      <circle cx={400} cy={y + 22.5} r={3} className={isDark ? 'fill-white/30' : 'fill-gray-400'} />
+                      <circle cx={600} cy={y + 22.5} r={3} className={isDark ? 'fill-white/30' : 'fill-gray-400'} />
+                    </g>
+                  );
+                })}
+              </g>
+
+              {/* Right Port Targets */}
+              <g>
+                {lineageNodes.targets.map((tgt, idx) => {
+                  const y = 50 + idx * 80;
+                  const isHovered = hoveredTargetCol === tgt;
+                  const isAnyHovered = hoveredTargetCol !== null;
+                  const opacity = isAnyHovered ? (isHovered ? 1.0 : 0.25) : 1.0;
+
+                  return (
+                    <g
+                      key={`tgt-${tgt}`}
+                      onMouseEnter={() => setHoveredTargetCol(tgt)}
+                      onMouseLeave={() => setHoveredTargetCol(null)}
+                      style={{ opacity }}
+                      className="transition-all duration-300 cursor-pointer"
+                    >
+                      <rect
+                        x={730}
+                        y={y}
+                        width={220}
+                        height={45}
+                        rx={8}
+                        fill={isHovered ? (isDark ? 'rgba(235,17,101,0.15)' : 'rgba(235,17,101,0.05)') : (isDark ? '#1e1b1e' : '#f8fafc')}
+                        stroke={isHovered ? '#EB1165' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}
+                        strokeWidth={isHovered ? 2 : 1.5}
+                        filter="url(#shadow)"
+                      />
+                      <text x={745} y={y + 18} className="text-[10px] font-bold fill-axis-red uppercase tracking-wider">
+                        Target Column
+                      </text>
+                      <text x={745} y={y + 33} className={`text-[12px] font-mono font-bold ${isDark ? 'fill-gray-100' : 'fill-gray-700'}`}>
+                        {tgt}
+                      </text>
+                      <circle cx={730} cy={y + 22.5} r={4} className="fill-axis-red" />
+                    </g>
+                  );
+                })}
+              </g>
+            </svg>
+          </div>
+        </div>
+      </section>
+    );
+  };
+
+  const renderDqInsightsSection = () => {
+    if (simulatedData.length === 0) return null;
+
+    return (
+      <section className="space-y-4 animate-in fade-in duration-300">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className={`flex items-center gap-2 font-semibold uppercase text-xs tracking-widest ${isDark ? 'text-axis-cream' : 'text-axis-red'}`}>
+              <Activity className="w-4 h-4" /> DQ Insights
+            </div>
+            {Object.keys(allTablesData).length > 0 && (
+              <div className="flex flex-wrap items-center gap-3">
+                <span className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-white/50' : 'text-gray-500'}`}>
+                  Table:
+                </span>
+                <select
+                  value={selectedDqTable}
+                  onChange={(e) => setSelectedDqTable(e.target.value)}
+                  className={`px-3 py-1.5 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
+                    ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
+                    : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'}`}
+                >
+                  {Object.keys(allTablesData).map((table: string) => (
+                    <option key={table} value={table} className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
+                      {table}
+                    </option>
+                  ))}
+                </select>
+
+                {availableDqColumns.length > 0 && (
+                  <>
+                    <span className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-white/50' : 'text-gray-555'}`}>
+                      Column:
+                    </span>
+                    <select
+                      value={selectedDqColumn}
+                      onChange={(e) => setSelectedDqColumn(e.target.value)}
+                      className={`px-3 py-1.5 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
+                        ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
+                        : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'}`}
+                    >
+                      {availableDqColumns.map((col) => (
+                        <option key={col} value={col} className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
+                          {col}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* MultiSelect metrics selection Checklist dropdown */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsDqParamsDropdownOpen(prev => !prev)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 hover:scale-[1.01] ${isDark
+                  ? 'border-white/10 bg-white/5 hover:bg-white/10 text-white'
+                  : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'}`}
+              >
+                Select Metrics ({selectedDqParams.length})
+              </button>
+              {isDqParamsDropdownOpen && (
+                <div className={`absolute right-0 mt-2 w-64 rounded-2xl shadow-2xl border p-4 z-10 transition-all ${isDark
+                  ? 'bg-axis-burgundy-dark text-white border-white/10'
+                  : 'bg-white text-gray-800 border-gray-200'}`}>
+                  <div className="flex justify-between items-center pb-2 mb-2 border-b border-white/10">
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Metrics Checklist</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsDqParamsDropdownOpen(false)}
+                      className="text-xs font-bold text-axis-red hover:underline"
+                    >
+                      Done
+                    </button>
+                  </div>
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {dqConfigParams.map((param) => {
+                      const checked = selectedDqParams.includes(param.key);
+                      return (
+                        <label key={param.key} className="flex items-start gap-2 cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 p-1 rounded transition-colors text-left text-xs">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              if (checked) {
+                                setSelectedDqParams(selectedDqParams.filter(k => k !== param.key));
+                              } else {
+                                setSelectedDqParams([...selectedDqParams, param.key]);
+                              }
+                            }}
+                            className="mt-0.5 rounded text-axis-red focus:ring-axis-red"
+                          />
+                          <div>
+                            <div className="font-bold">{param.name}</div>
+                            <div className="text-[10px] opacity-60">{param.description}</div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={handleGenerateDqInsights}
+              disabled={isCalculatingDq || !selectedDqColumn}
+              className={`px-4 py-1.5 rounded-xl text-xs font-bold text-white transition-all hover:scale-[1.02] flex items-center gap-1.5 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${isDark
+                ? 'bg-gradient-to-r from-axis-red to-axis-burgundy'
+                : 'bg-gradient-to-r from-axis-burgundy to-axis-red'}`}
+            >
+              {isCalculatingDq ? (
+                <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : null}
+              {isCalculatingDq ? 'Generating...' : 'Generate DQ Insights'}
+            </button>
+          </div>
+        </div>
+
+        {Object.keys(calculatedDqMetrics).length === 0 ? (
+          <div className={`p-8 text-center rounded-2xl border text-xs font-semibold ${isDark ? 'bg-axis-burgundy-dark/20 border-white/10 text-white/50' : 'bg-gray-50 border-gray-150 text-gray-500'}`}>
+            Select parameters and click "Generate DQ Insights" to view metrics.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in duration-200">
+            {dqConfigParams.filter(p => selectedDqParams.includes(p.key)).map((param) => {
+              const value = calculatedDqMetrics[param.key];
+              let colorClass = '';
+              if (param.key === 'null_values' && Number(value) > 0) colorClass = isDark ? 'text-red-400' : 'text-red-600';
+              else if (param.key === 'duplicate_rows' && Number(value) > 0) colorClass = isDark ? 'text-orange-400' : 'text-orange-600';
+              else if (param.key === 'distinct_values') colorClass = isDark ? 'text-emerald-400' : 'text-emerald-600';
+
+              return (
+                <div key={param.key} className={`p-5 rounded-xl transition-colors group shadow-sm duration-400 border text-left flex flex-col justify-between ${isDark
+                  ? 'bg-axis-burgundy-dark/50 border-white/10 hover:border-axis-red/40 text-white'
+                  : 'bg-white border border-gray-200 hover:border-axis-burgundy/30 text-gray-800'}`}>
+                  <div>
+                    <div className={`text-xs font-semibold mb-1 ${isDark ? 'text-white/50' : 'text-gray-555'}`}>{param.name}</div>
+                    <div className={`text-2xl font-bold group-hover:scale-105 transition-transform origin-left ${colorClass || (isDark ? 'text-white' : 'text-gray-905')}`}>
+                      {value !== null && value !== undefined ? String(value) : '-'}
+                    </div>
+                  </div>
+                  <div className="text-[10px] opacity-40 mt-2 border-t pt-1 dark:border-white/5 border-gray-100">{param.description}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    );
+  };
+
   return (
     <div className={`flex-1 p-8 overflow-y-auto transition-colors duration-400 ${isDark ? 'bg-axis-burgundy-deep' : 'bg-axis-gray'}`}>
       <div className="max-w-[1400px] mx-auto space-y-8 animate-in fade-in duration-300">
@@ -1734,7 +2325,7 @@ const MainSection: React.FC<MainSectionProps> = ({
         {/* HEADER */}
         <header className="flex justify-between items-center">
           <h1 className={`text-2xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-axis-red'}`}>
-            {activeTab === 'sdlc' ? 'Code Output & Data Profiling Insights' : 'Query Plan & Code Output'}
+            {activeTab === 'sdlc' ? 'Code Output & DQ Insights' : 'Query Plan & Code Output'}
           </h1>
           <div className="flex items-center gap-3">
             <button
@@ -1804,20 +2395,31 @@ const MainSection: React.FC<MainSectionProps> = ({
                     <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50" />
                     <div className="w-2.5 h-2.5 rounded-full bg-green-500/50" />
                   </div>
-                  {code && (
-                    <button
-                      onClick={handleCopyCode}
-                      className={`p-1.5 rounded-lg border transition-all duration-200 flex items-center justify-center ${isDark
-                        ? 'border-white/10 hover:bg-white/10 text-gray-400 hover:text-white'
-                        : 'border-gray-200 hover:bg-gray-100 text-gray-500 hover:text-gray-900'}`}
-                      title="Copy code to clipboard"
-                    >
-                      {isCopied ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-500 animate-in zoom-in duration-200" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5 transition-transform duration-200 hover:scale-110" />
-                      )}
-                    </button>
+                  {editableCode && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleOpenEditModal}
+                        className={`p-1.5 rounded-lg border transition-all duration-200 flex items-center justify-center ${isDark
+                          ? 'border-white/10 hover:bg-white/10 text-gray-400 hover:text-white'
+                          : 'border-gray-200 hover:bg-gray-100 text-gray-500 hover:text-gray-900'}`}
+                        title="Edit code"
+                      >
+                        <Edit2 className="w-3.5 h-3.5 transition-transform duration-200 hover:scale-110" />
+                      </button>
+                      <button
+                        onClick={handleCopyCode}
+                        className={`p-1.5 rounded-lg border transition-all duration-200 flex items-center justify-center ${isDark
+                          ? 'border-white/10 hover:bg-white/10 text-gray-400 hover:text-white'
+                          : 'border-gray-200 hover:bg-gray-100 text-gray-500 hover:text-gray-900'}`}
+                        title="Copy code to clipboard"
+                      >
+                        {isCopied ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-500 animate-in zoom-in duration-200" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5 transition-transform duration-200 hover:scale-110" />
+                        )}
+                      </button>
+                    </div>
                   )}
                 </div>
                 <pre className={`p-6 font-mono text-sm leading-relaxed whitespace-pre-wrap break-all overflow-x-auto min-h-[300px] ${isLoading ? 'animate-pulse-subtle' : ''}`}>
@@ -1825,7 +2427,7 @@ const MainSection: React.FC<MainSectionProps> = ({
                     {isLoading ? (
                       <span className={isDark ? 'text-white/40' : 'text-gray-400'}>Generating intelligent code structures...</span>
                     ) : (
-                      code || <span className={`italic ${isDark ? 'text-white/30' : 'text-gray-400'}`}>// Your generated code will appear here...</span>
+                      editableCode || <span className={`italic ${isDark ? 'text-white/30' : 'text-gray-400'}`}>// Your generated code will appear here...</span>
                     )}
                   </code>
                 </pre>
@@ -1866,7 +2468,7 @@ const MainSection: React.FC<MainSectionProps> = ({
                 {simulationData?.execution_explanation && (
                   <button
                     onClick={() => setIsExplanationOpen(true)}
-                    className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border ${isDark
+                    className={`px-3 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border ${isDark
                       ? 'bg-axis-red/20 hover:bg-axis-red/30 text-white border-axis-red/30'
                       : 'bg-red-50 hover:bg-red-100 text-axis-burgundy border-red-200'}`}
                   >
@@ -1874,10 +2476,21 @@ const MainSection: React.FC<MainSectionProps> = ({
                     Execution Explanation
                   </button>
                 )}
+                {editableCode && (
+                  <button
+                    onClick={handleGenerateLineage}
+                    className={`px-3 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border ${isDark
+                      ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30'
+                      : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200'}`}
+                  >
+                    <GitBranch className="w-4 h-4" />
+                    Generate Lineage
+                  </button>
+                )}
                 <button
                   onClick={handleStoreSemanticCache}
-                  disabled={!code || isStoringCache || isLoading}
-                  className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
+                  disabled={!editableCode || isStoringCache || isLoading}
+                  className={`px-3 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
                     ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30'
                     : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'}`}
                 >
@@ -1897,8 +2510,8 @@ const MainSection: React.FC<MainSectionProps> = ({
                       handleGenerateTestCases();
                     }
                   }}
-                  disabled={!code || isGeneratingTestCases || isLoading}
-                  className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
+                  disabled={!editableCode || isGeneratingTestCases || isLoading}
+                  className={`px-3 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
                     ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30'
                     : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200'}`}
                 >
@@ -1914,8 +2527,8 @@ const MainSection: React.FC<MainSectionProps> = ({
 
                 <button
                   onClick={handleRunCode}
-                  disabled={!code || isSimulating || isLoading}
-                  className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
+                  disabled={!editableCode || isSimulating || isLoading}
+                  className={`px-3 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
                     ? 'bg-white/10 hover:bg-white/15 text-white border border-white/10'
                     : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200'}`}
                 >
@@ -1931,6 +2544,8 @@ const MainSection: React.FC<MainSectionProps> = ({
 
             {renderTestCasesSection()}
 
+            {renderLineageVisualizer()}
+
             {/* Simulated Output Preview Section */}
             {simulatedData.length > 0 && (
               <section className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -1941,6 +2556,28 @@ const MainSection: React.FC<MainSectionProps> = ({
                 {/* Controls Row */}
                 <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
                   <div className="flex flex-col sm:flex-row gap-3 flex-1">
+                    {/* Table Select Dropdown */}
+                    {Object.keys(allTablesData).length > 0 && (
+                      <div className="relative flex-1 max-w-xs">
+                        <select
+                          value={selectedPreviewTable}
+                          onChange={(e) => {
+                            setSelectedPreviewTable(e.target.value);
+                            setSelectedDqTable(e.target.value);
+                          }}
+                          className={`w-full px-3 py-2 text-sm rounded-xl focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
+                            ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
+                            : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'}`}
+                        >
+                          {Object.keys(allTablesData).map((tbl) => (
+                            <option key={tbl} value={tbl} className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
+                              {tbl}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
                     <div className="relative flex-1 max-w-sm">
                       <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-white/40' : 'text-gray-400'}`} />
                       <input
@@ -2195,82 +2832,7 @@ const MainSection: React.FC<MainSectionProps> = ({
                 </div>
               </section>
             )}
-
-            {/* DQ Insights Section */}
-            {simulatedData.length > 0 && (
-              <section className="space-y-4 animate-in fade-in duration-300">
-                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                  <div className={`flex items-center gap-2 font-semibold uppercase text-xs tracking-widest ${isDark ? 'text-axis-cream' : 'text-axis-red'}`}>
-                    <Activity className="w-4 h-4" /> Data Profiling Insights
-                  </div>
-                  {formData?.tables && formData.tables.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-3">
-                      <span className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-white/50' : 'text-gray-500'}`}>
-                        Table:
-                      </span>
-                      <select
-                        value={selectedDqTable}
-                        onChange={(e) => setSelectedDqTable(e.target.value)}
-                        className={`px-3 py-1.5 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
-                          ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
-                          : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'}`}
-                      >
-                        <option value="Output Table" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
-                          Output Table
-                        </option>
-                        {formData.tables.map((table: string) => (
-                          <option key={table} value={table} className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
-                            {table}
-                          </option>
-                        ))}
-                      </select>
-
-                      {availableDqColumns.length > 0 && (
-                        <>
-                          <span className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-white/50' : 'text-gray-500'}`}>
-                            Column:
-                          </span>
-                          <select
-                            value={selectedDqColumn}
-                            onChange={(e) => setSelectedDqColumn(e.target.value)}
-                            className={`px-3 py-1.5 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
-                              ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
-                              : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'}`}
-                          >
-                            {availableDqColumns.map((col) => (
-                              <option key={col} value={col} className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
-                                {col}
-                              </option>
-                            ))}
-                          </select>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {[
-                    { label: 'Row Count', value: activeInsights?.row_count, icon: HashIcon },
-                    { label: 'Null Values', value: activeInsights?.null_values, darkColor: 'text-red-400', lightColor: 'text-red-600' },
-                    { label: 'Duplicate Rows', value: activeInsights?.duplicate_rows, darkColor: 'text-orange-400', lightColor: 'text-orange-600' },
-                    { label: 'Distinct Values', value: activeInsights?.distinct_values, darkColor: 'text-emerald-400', lightColor: 'text-emerald-600' },
-                    { label: 'Whitespace / Empty Strings', value: activeInsights?.empty_strings, darkColor: 'text-amber-400', lightColor: 'text-amber-600' },
-                    { label: 'Minimum', value: activeInsights?.minimum },
-                    { label: 'Maximum', value: activeInsights?.maximum },
-                    { label: 'Average', value: activeInsights?.average },
-                  ].map((item, idx) => (
-                    <div key={idx} className={`p-5 rounded-xl transition-colors group shadow-sm duration-400 border ${isDark
-                      ? 'bg-axis-burgundy-dark/50 border-white/10 hover:border-axis-red/40 text-white'
-                      : 'bg-white border border-gray-200 hover:border-axis-burgundy/30 text-gray-800'}`}>
-                      <div className={`text-xs font-medium mb-1 ${isDark ? 'text-white/50' : 'text-gray-555'}`}>{item.label}</div>
-                      <div className={`text-2xl font-bold group-hover:scale-105 transition-transform origin-left ${(isDark ? item.darkColor : item.lightColor) || (isDark ? 'text-white' : 'text-gray-905')}`}>
-                        {isLoading ? '...' : (item.value ?? '-')}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
+            {renderDqInsightsSection()}
           </>
         ) : (
           // Conversational BI Tab Rendering Block
@@ -2335,20 +2897,31 @@ const MainSection: React.FC<MainSectionProps> = ({
                       <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50" />
                       <div className="w-2.5 h-2.5 rounded-full bg-green-500/50" />
                     </div>
-                    {code && (
-                      <button
-                        onClick={handleCopyCode}
-                        className={`p-1.5 rounded-lg border transition-all duration-200 flex items-center justify-center ${isDark
-                          ? 'border-white/10 hover:bg-white/10 text-gray-400 hover:text-white'
-                          : 'border-gray-200 hover:bg-gray-100 text-gray-500 hover:text-gray-900'}`}
-                        title="Copy code to clipboard"
-                      >
-                        {isCopied ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-500 animate-in zoom-in duration-200" />
-                        ) : (
-                          <Copy className="w-3.5 h-3.5 transition-transform duration-200 hover:scale-110" />
-                        )}
-                      </button>
+                    {editableCode && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleOpenEditModal}
+                          className={`p-1.5 rounded-lg border transition-all duration-200 flex items-center justify-center ${isDark
+                            ? 'border-white/10 hover:bg-white/10 text-gray-400 hover:text-white'
+                            : 'border-gray-200 hover:bg-gray-100 text-gray-500 hover:text-gray-900'}`}
+                          title="Edit code"
+                        >
+                          <Edit2 className="w-3.5 h-3.5 transition-transform duration-200 hover:scale-110" />
+                        </button>
+                        <button
+                          onClick={handleCopyCode}
+                          className={`p-1.5 rounded-lg border transition-all duration-200 flex items-center justify-center ${isDark
+                            ? 'border-white/10 hover:bg-white/10 text-gray-400 hover:text-white'
+                            : 'border-gray-200 hover:bg-gray-100 text-gray-500 hover:text-gray-900'}`}
+                          title="Copy code to clipboard"
+                        >
+                          {isCopied ? (
+                            <Check className="w-3.5 h-3.5 text-emerald-500 animate-in zoom-in duration-200" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5 transition-transform duration-200 hover:scale-110" />
+                          )}
+                        </button>
+                      </div>
                     )}
                   </div>
                   <pre className={`p-5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all min-h-[260px] max-h-[350px] overflow-y-auto ${isLoading ? 'animate-pulse-subtle' : ''}`}>
@@ -2356,7 +2929,7 @@ const MainSection: React.FC<MainSectionProps> = ({
                       {isLoading ? (
                         <span className={isDark ? 'text-white/40' : 'text-gray-400'}>Generating SQL code snippet...</span>
                       ) : (
-                        code || <span className={`italic ${isDark ? 'text-white/30' : 'text-gray-400'}`}>-- SQL query output will appear here...</span>
+                        editableCode || <span className={`italic ${isDark ? 'text-white/30' : 'text-gray-400'}`}>-- SQL query output will appear here...</span>
                       )}
                     </code>
                   </pre>
@@ -2406,9 +2979,20 @@ const MainSection: React.FC<MainSectionProps> = ({
                     Execution Explanation
                   </button>
                 )}
+                {editableCode && (
+                  <button
+                    onClick={handleGenerateLineage}
+                    className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border ${isDark
+                      ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30'
+                      : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200'}`}
+                  >
+                    <GitBranch className="w-4 h-4" />
+                    Generate Lineage
+                  </button>
+                )}
                 <button
                   onClick={handleStoreSemanticCache}
-                  disabled={!code || isStoringCache || isLoading}
+                  disabled={!editableCode || isStoringCache || isLoading}
                   className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
                     ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30'
                     : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'}`}
@@ -2429,7 +3013,7 @@ const MainSection: React.FC<MainSectionProps> = ({
                       handleGenerateTestCases();
                     }
                   }}
-                  disabled={!code || isGeneratingTestCases || isLoading}
+                  disabled={!editableCode || isGeneratingTestCases || isLoading}
                   className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
                     ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30'
                     : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200'}`}
@@ -2446,7 +3030,7 @@ const MainSection: React.FC<MainSectionProps> = ({
 
                 <button
                   onClick={handleRunCode}
-                  disabled={!code || isSimulating || isLoading}
+                  disabled={!editableCode || isSimulating || isLoading}
                   className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
                     ? 'bg-white/10 hover:bg-white/15 text-white border border-white/10'
                     : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200'}`}
@@ -2463,6 +3047,8 @@ const MainSection: React.FC<MainSectionProps> = ({
 
             {renderTestCasesSection()}
 
+            {renderLineageVisualizer()}
+
             {/* Output Simulation Section */}
             {simulatedData.length > 0 && (
               <section className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -2470,19 +3056,43 @@ const MainSection: React.FC<MainSectionProps> = ({
                   <Database className="w-4 h-4" /> Simulated Output Preview
                 </div>
 
-                {/* Controls Row - ONLY Search and Export dropdown */}
-                <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
-                  <div className="relative flex-1 w-full max-w-sm">
-                    <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-white/40' : 'text-gray-400'}`} />
-                    <input
-                      type="text"
-                      placeholder="Search simulated records..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className={`w-full pl-9 pr-4 py-2 text-sm rounded-xl focus:outline-none focus:ring-2 transition-all ${isDark
-                        ? 'bg-white/10 border border-white/10 text-white placeholder-white/30 focus:ring-axis-red/30'
-                        : 'bg-white border border-gray-200 text-gray-700 placeholder-gray-400 focus:ring-axis-burgundy/20'}`}
-                    />
+                {/* Controls Row - Table Select, Search and Export dropdown */}
+                <div className="flex flex-col sm:flex-row gap-4 items-center justify-between w-full">
+                  <div className="flex flex-col sm:flex-row gap-3 flex-1 w-full">
+                    {/* Table Select Dropdown */}
+                    {Object.keys(allTablesData).length > 0 && (
+                      <div className="relative flex-1 max-w-xs">
+                        <select
+                          value={selectedPreviewTable}
+                          onChange={(e) => {
+                            setSelectedPreviewTable(e.target.value);
+                            setSelectedDqTable(e.target.value);
+                          }}
+                          className={`w-full px-3 py-2 text-sm rounded-xl focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
+                            ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
+                            : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'}`}
+                        >
+                          {Object.keys(allTablesData).map((tbl) => (
+                            <option key={tbl} value={tbl} className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
+                              {tbl}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="relative flex-1 max-w-sm">
+                      <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-white/40' : 'text-gray-400'}`} />
+                      <input
+                        type="text"
+                        placeholder="Search simulated records..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className={`w-full pl-9 pr-4 py-2 text-sm rounded-xl focus:outline-none focus:ring-2 transition-all ${isDark
+                          ? 'bg-white/10 border border-white/10 text-white placeholder-white/30 focus:ring-axis-red/30'
+                          : 'bg-white border border-gray-200 text-gray-700 placeholder-gray-400 focus:ring-axis-burgundy/20'}`}
+                      />
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -2600,82 +3210,7 @@ const MainSection: React.FC<MainSectionProps> = ({
                 </div>
               </section>
             )}
-
-            {/* DQ Insights Section */}
-            {simulatedData.length > 0 && (
-              <section className="space-y-4 animate-in fade-in duration-300">
-                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                  <div className={`flex items-center gap-2 font-semibold uppercase text-xs tracking-widest ${isDark ? 'text-axis-cream' : 'text-axis-red'}`}>
-                    <Activity className="w-4 h-4" /> Data Profiling Insights
-                  </div>
-                  {formData?.tables && formData.tables.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-3">
-                      <span className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-white/50' : 'text-gray-550'}`}>
-                        Table:
-                      </span>
-                      <select
-                        value={selectedDqTable}
-                        onChange={(e) => setSelectedDqTable(e.target.value)}
-                        className={`px-3 py-1.5 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
-                          ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
-                          : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'}`}
-                      >
-                        <option value="Output Table" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
-                          Output Table
-                        </option>
-                        {formData.tables.map((table: string) => (
-                          <option key={table} value={table} className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
-                            {table}
-                          </option>
-                        ))}
-                      </select>
-
-                      {availableDqColumns.length > 0 && (
-                        <>
-                          <span className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-white/50' : 'text-gray-500'}`}>
-                            Column:
-                          </span>
-                          <select
-                            value={selectedDqColumn}
-                            onChange={(e) => setSelectedDqColumn(e.target.value)}
-                            className={`px-3 py-1.5 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
-                              ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
-                              : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'}`}
-                          >
-                            {availableDqColumns.map((col) => (
-                              <option key={col} value={col} className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
-                                {col}
-                              </option>
-                            ))}
-                          </select>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {[
-                    { label: 'Row Count', value: activeInsights?.row_count, icon: HashIcon },
-                    { label: 'Null Values', value: activeInsights?.null_values, darkColor: 'text-red-400', lightColor: 'text-red-600' },
-                    { label: 'Duplicate Rows', value: activeInsights?.duplicate_rows, darkColor: 'text-orange-400', lightColor: 'text-orange-600' },
-                    { label: 'Distinct Values', value: activeInsights?.distinct_values, darkColor: 'text-emerald-400', lightColor: 'text-emerald-600' },
-                    { label: 'Whitespace / Empty Strings', value: activeInsights?.empty_strings, darkColor: 'text-amber-400', lightColor: 'text-amber-600' },
-                    { label: 'Minimum', value: activeInsights?.minimum },
-                    { label: 'Maximum', value: activeInsights?.maximum },
-                    { label: 'Average', value: activeInsights?.average },
-                  ].map((item, idx) => (
-                    <div key={idx} className={`p-5 rounded-xl transition-colors group shadow-sm duration-400 border ${isDark
-                      ? 'bg-axis-burgundy-dark/50 border-white/10 hover:border-axis-red/40 text-white'
-                      : 'bg-white border border-gray-200 hover:border-axis-burgundy/30 text-gray-800'}`}>
-                      <div className={`text-xs font-medium mb-1 ${isDark ? 'text-white/50' : 'text-gray-555'}`}>{item.label}</div>
-                      <div className={`text-2xl font-bold group-hover:scale-105 transition-transform origin-left ${(isDark ? item.darkColor : item.lightColor) || (isDark ? 'text-white' : 'text-gray-905')}`}>
-                        {isLoading ? '...' : (item.value ?? '-')}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
+            {renderDqInsightsSection()}
 
             {/* NEW Visualization Section */}
             {simulatedData.length > 0 && (
@@ -3349,6 +3884,57 @@ const MainSection: React.FC<MainSectionProps> = ({
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-axis-burgundy/95 dark:bg-axis-red/95 text-white px-6 py-3 rounded-xl shadow-2xl border border-white/10 flex items-center gap-2 animate-toast-in">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 animate-bounce" />
           <span className="text-sm font-semibold">Code Copied to Clipboard</span>
+        </div>
+      )}
+
+      {/* Edit Code Modal */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className={`w-full max-w-4xl rounded-2xl border flex flex-col max-h-[85vh] transition-colors duration-400 ${isDark
+            ? 'bg-axis-burgundy-deep border-white/10 text-white'
+            : 'bg-white border-gray-200 text-gray-800'}`}>
+            {/* Modal Header */}
+            <div className={`flex items-center justify-between px-6 py-4 border-b ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
+              <h3 className="font-bold text-lg">Edit Generated Code</h3>
+              <button
+                onClick={() => setIsEditModalOpen(false)}
+                className={`p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition-colors ${isDark ? 'text-white/60' : 'text-gray-555'}`}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto flex-1">
+              <textarea
+                value={modalCodeValue}
+                onChange={(e) => setModalCodeValue(e.target.value)}
+                className={`w-full h-96 p-4 font-mono text-sm rounded-xl focus:outline-none focus:ring-2 transition-all resize-y ${isDark
+                  ? 'bg-black/30 border border-white/10 text-white placeholder-white/30 focus:ring-axis-red/30'
+                  : 'bg-gray-50 border border-gray-200 text-gray-700 placeholder-gray-400 focus:ring-axis-burgundy/20'}`}
+              />
+            </div>
+
+            {/* Modal Footer */}
+            <div className={`flex items-center justify-end gap-3 px-6 py-4 border-t ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
+              <button
+                onClick={() => setIsEditModalOpen(false)}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${isDark
+                  ? 'border-white/10 hover:bg-white/5 text-white'
+                  : 'border-gray-200 hover:bg-gray-50 text-gray-700'}`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdateCode}
+                className={`px-5 py-2 rounded-xl text-sm font-bold text-white transition-all hover:brightness-110 ${isDark
+                  ? 'bg-gradient-to-r from-axis-red to-axis-burgundy shadow-lg shadow-black/30'
+                  : 'bg-gradient-to-r from-axis-burgundy to-axis-red shadow-lg shadow-axis-burgundy/20'}`}
+              >
+                Update Code
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

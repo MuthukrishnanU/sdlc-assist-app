@@ -3,6 +3,7 @@ import re
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Form, UploadFile, File, BackgroundTasks
+from bson import ObjectId
 from ..config.settings import get_db
 from ..services.email import send_approval_email
 from ..services.db import get_or_create_quota, clean_column_name, generate_dummy_data
@@ -422,6 +423,113 @@ async def delete_pii_guardrail(piiParameter: str):
         return {"status": "success", "message": f"PII Parameter '{piiParameter}' deleted successfully."}
     except HTTPException as he:
         raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/dq-insights/parameters")
+async def get_dq_parameters():
+    try:
+        db = get_db()
+        if "dqInsightsParams" not in db.list_collection_names() or db["dqInsightsParams"].count_documents({}) == 0:
+            default_params = [
+                {"name": "Row Count", "key": "row_count", "description": "Calculates the total number of records.", "category": "Volume", "status": "Active"},
+                {"name": "Null Values", "key": "null_values", "description": "Calculates the count of null or empty values.", "category": "Completeness", "status": "Active"},
+                {"name": "Duplicate Rows", "key": "duplicate_rows", "description": "Calculates the duplicate records count.", "category": "Uniqueness", "status": "Active"},
+                {"name": "Distinct Values", "key": "distinct_values", "description": "Calculates the number of unique distinct values.", "category": "Uniqueness", "status": "Active"},
+                {"name": "Whitespace / Empty Strings", "key": "empty_strings", "description": "Calculates the whitespaces and empty string count.", "category": "Format", "status": "Active"},
+                {"name": "Minimum", "key": "minimum", "description": "Calculates the minimum numeric or date value.", "category": "Range", "status": "Active"},
+                {"name": "Maximum", "key": "maximum", "description": "Calculates the maximum numeric or date value.", "category": "Range", "status": "Active"},
+                {"name": "Average", "key": "average", "description": "Calculates the average of numeric value fields.", "category": "Distribution", "status": "Active"}
+            ]
+            db["dqInsightsParams"].insert_many(default_params)
+        
+        standard_defaults = {
+            "row_count": ("Row Count", "Calculates the total number of records.", "Volume"),
+            "null_values": ("Null Values", "Calculates the count of null or empty values.", "Completeness"),
+            "duplicate_rows": ("Duplicate Rows", "Calculates the duplicate records count.", "Uniqueness"),
+            "distinct_values": ("Distinct Values", "Calculates the number of unique distinct values.", "Uniqueness"),
+            "empty_strings": ("Whitespace / Empty Strings", "Calculates the whitespaces and empty string count.", "Format"),
+            "whitespace__empty_strings": ("Whitespace / Empty Strings", "Calculates the whitespaces and empty string count.", "Format"),
+            "minimum": ("Minimum", "Calculates the minimum numeric or date value.", "Range"),
+            "maximum": ("Maximum", "Calculates the maximum numeric or date value.", "Range"),
+            "average": ("Average", "Calculates the average of numeric value fields.", "Distribution")
+        }
+
+        cursor = db["dqInsightsParams"].find({})
+        params = []
+        for doc in cursor:
+            doc["id"] = str(doc["_id"])
+            doc.pop("_id", None)
+            
+            # Map legacy schemas
+            raw_name = doc.get("name") or doc.get("paramName") or "Unnamed Parameter"
+            raw_key = doc.get("key") or doc.get("paramKey") or re.sub(r'[^a-zA-Z0-9_]', '', raw_name.lower().replace(' ', '_'))
+            clean_key = raw_key.lower().strip()
+            
+            if clean_key in standard_defaults:
+                def_name, def_desc, def_cat = standard_defaults[clean_key]
+                doc["name"] = doc.get("name") or doc.get("paramName") or def_name
+                doc["description"] = doc.get("description") or doc.get("paramDesc") or def_desc
+                doc["category"] = doc.get("category") or doc.get("paramCategory") or def_cat
+            else:
+                doc["name"] = raw_name
+                doc["description"] = doc.get("description") or doc.get("paramDesc") or f"Calculates {raw_name.lower()} metrics."
+                doc["category"] = doc.get("category") or doc.get("paramCategory") or "General"
+                
+            doc["key"] = clean_key
+            doc["status"] = doc.get("status") or doc.get("paramStatus") or "Active"
+            params.append(doc)
+        return params
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/dq-insights/parameters")
+async def create_dq_parameter(name: str = Form(...), key: str = Form(...), description: str = Form(...), category: str = Form(...), status: str = Form("Active")):
+    try:
+        db = get_db()
+        clean_key = re.sub(r'[^a-zA-Z0-9_]', '', key.lower().replace(' ', '_'))
+        doc = {
+            "name": name,
+            "key": clean_key,
+            "description": description,
+            "category": category,
+            "status": status
+        }
+        res = db["dqInsightsParams"].insert_one(doc)
+        return {"status": "success", "id": str(res.inserted_id)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/dq-insights/parameters/{param_id}")
+async def update_dq_parameter(param_id: str, name: str = Form(...), key: str = Form(...), description: str = Form(...), category: str = Form(...), status: str = Form(...)):
+    try:
+        db = get_db()
+        clean_key = re.sub(r'[^a-zA-Z0-9_]', '', key.lower().replace(' ', '_'))
+        res = db["dqInsightsParams"].update_one(
+            {"_id": ObjectId(param_id)},
+            {"$set": {
+                "name": name,
+                "key": clean_key,
+                "description": description,
+                "category": category,
+                "status": status
+            }}
+        )
+        if res.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Parameter not found")
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/dq-insights/parameters/{param_id}")
+async def delete_dq_parameter(param_id: str):
+    try:
+        db = get_db()
+        res = db["dqInsightsParams"].delete_one({"_id": ObjectId(param_id)})
+        if res.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Parameter not found")
+        return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

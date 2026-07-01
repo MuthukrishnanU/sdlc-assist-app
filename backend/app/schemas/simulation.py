@@ -49,6 +49,7 @@ class SimulationResponse(BaseModel):
     output_guardrails: Optional[List[dict]] = None
     insights: Optional[List[str]] = None
     personas: Optional[List[dict]] = None
+    all_tables_data: Optional[Dict[str, List[dict]]] = None
 
 class GitHubPushRequest(BaseModel):
     dataframe: List[dict]
@@ -66,3 +67,9 @@ class GitHubPushRequest(BaseModel):
     dq_insights: Optional[Union[dict, List[dict]]] = None
     timestamp: Optional[str] = None
     test_cases: Optional[List[dict]] = None
+
+class DQCalculationRequest(BaseModel):
+    table_name: str
+    column_name: str
+    metrics: List[str]
+    all_tables_data: Dict[str, List[dict]]

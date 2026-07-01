@@ -38,17 +38,17 @@ def validate_sql_readonly(sql_code: str):
                 detail=f"Security Violation: Non-select operation '{stmt_type}' detected."
             )
             
-        # Verify CTE / UNKNOWN statements
+        # Verify CTE / UNKNOWN statements (including PL/SQL blocks)
         if stmt_type == 'UNKNOWN':
-            first_keyword = None
+            first_word = None
             for token in stmt.tokens:
-                if token.is_keyword:
-                    first_keyword = token.value.upper()
+                if not token.is_whitespace and token.ttype not in (sqlparse.tokens.Comment, sqlparse.tokens.Punctuation):
+                    first_word = token.value.strip().split()[0].upper() if token.value.strip() else None
                     break
-            if first_keyword not in ('WITH', 'SELECT'):
+            if first_word not in ('WITH', 'SELECT', 'DECLARE', 'BEGIN'):
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Security Violation: SQL statement starting with unauthorized keyword '{first_keyword or 'UNKNOWN'}'. Only SELECT and WITH statements are allowed."
+                    detail=f"Security Violation: SQL statement starting with unauthorized keyword '{first_word or 'UNKNOWN'}'. Only SELECT, WITH, DECLARE and BEGIN statements are allowed."
                 )
                 
         # Flatten and check all individual tokens for blocked write keywords

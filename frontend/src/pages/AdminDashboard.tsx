@@ -44,8 +44,105 @@ interface PendingPushApproval {
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout, apiBaseUrl, onNavigateToPii }) => {
   const { isDark, toggleTheme } = useTheme();
 
-  // Active view: 'menu' | 'tables' | 'users' | 'pushes'
-  const [activeView, setActiveView] = React.useState<'menu' | 'tables' | 'users' | 'pushes'>('menu');
+  // Active view: 'menu' | 'tables' | 'users' | 'pushes' | 'dq'
+  const [activeView, setActiveView] = React.useState<'menu' | 'tables' | 'users' | 'pushes' | 'dq'>('menu');
+
+  // DQ Parameters Management State
+  interface DqParameter {
+    id: string;
+    name: string;
+    key: string;
+    description: string;
+    category: string;
+    status: string;
+  }
+  const [dqParams, setDqParams] = React.useState<DqParameter[]>([]);
+  const [loadingDq, setLoadingDq] = React.useState(false);
+  const [editingParam, setEditingParam] = React.useState<DqParameter | null>(null);
+  
+  // Form fields
+  const [paramName, setParamName] = React.useState('');
+  const [paramKey, setParamKey] = React.useState('');
+  const [paramDesc, setParamDesc] = React.useState('');
+  const [paramCategory, setParamCategory] = React.useState('');
+  const [paramStatus, setParamStatus] = React.useState('Active');
+  const [isParamFormOpen, setIsParamFormOpen] = React.useState(false);
+
+  const fetchDqParams = React.useCallback(async () => {
+    setLoadingDq(true);
+    try {
+      const response = await axios.get(`${apiBaseUrl}/dq-insights/parameters`);
+      setDqParams(response.data);
+    } catch (err) {
+      console.error('Failed to fetch DQ parameters:', err);
+    } finally {
+      setLoadingDq(false);
+    }
+  }, [apiBaseUrl]);
+
+  React.useEffect(() => {
+    if (activeView === 'dq') {
+      fetchDqParams();
+    }
+  }, [activeView, fetchDqParams]);
+
+  const handleSaveParam = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!paramName || !paramKey || !paramDesc || !paramCategory) {
+      alert('Please fill out all fields.');
+      return;
+    }
+    try {
+      const formData = new FormData();
+      formData.append('name', paramName);
+      formData.append('key', paramKey);
+      formData.append('description', paramDesc);
+      formData.append('category', paramCategory);
+      formData.append('status', paramStatus);
+
+      if (editingParam) {
+        await axios.put(`${apiBaseUrl}/dq-insights/parameters/${editingParam.id}`, formData);
+        alert('Parameter updated successfully.');
+      } else {
+        await axios.post(`${apiBaseUrl}/dq-insights/parameters`, formData);
+        alert('Parameter created successfully.');
+      }
+      
+      setParamName('');
+      setParamKey('');
+      setParamDesc('');
+      setParamCategory('');
+      setParamStatus('Active');
+      setEditingParam(null);
+      setIsParamFormOpen(false);
+      fetchDqParams();
+    } catch (err) {
+      console.error('Failed to save parameter:', err);
+      alert('Failed to save parameter.');
+    }
+  };
+
+  const handleEditParamClick = (param: DqParameter) => {
+    setEditingParam(param);
+    setParamName(param.name);
+    setParamKey(param.key);
+    setParamDesc(param.description);
+    setParamCategory(param.category);
+    setParamStatus(param.status);
+    setIsParamFormOpen(true);
+  };
+
+  const handleDeleteParam = async (paramId: string) => {
+    if (!confirm('Are you sure you want to delete this parameter?')) return;
+    try {
+      await axios.delete(`${apiBaseUrl}/dq-insights/parameters/${paramId}`);
+      alert('Parameter deleted successfully.');
+      fetchDqParams();
+    } catch (err) {
+      console.error('Failed to delete parameter:', err);
+      alert('Failed to delete parameter.');
+    }
+  };
 
   // Pending lists
   const [pendingTables, setPendingTables] = React.useState<PendingTableApproval[]>([]);
@@ -305,7 +402,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout, apiBase
         {/* Central Content Area */}
         <div className="flex-grow flex items-center justify-center py-6">
           {activeView === 'menu' && (
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 w-full max-w-5xl">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6 w-full max-w-6xl">
 
               {/* Approve Table Creation Button Card */}
               <button
@@ -363,7 +460,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout, apiBase
                 onClick={onNavigateToPii}
                 className={`flex flex-col items-center justify-center text-center p-6 rounded-3xl border transition-all duration-300 hover:scale-[1.03] group shadow-xl ${isDark
                   ? 'bg-axis-burgundy-dark/40 hover:bg-axis-burgundy-dark/60 border-white/10 hover:border-axis-red/30'
-                  : 'bg-white hover:bg-gray-50 border-gray-200 hover:border-axis-burgundy/20'
+                  : 'bg-white hover:bg-gray-55 border-gray-200 hover:border-axis-burgundy/20'
                   }`}
               >
                 <div className={`p-4.5 rounded-2xl mb-4 transition-transform group-hover:scale-110 ${isDark ? 'bg-white/5 text-axis-cream' : 'bg-axis-burgundy/5 text-axis-burgundy'}`}>
@@ -372,6 +469,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout, apiBase
                 <h3 className="text-base font-bold">Add New PII Parameter</h3>
                 <p className="text-[11px] opacity-60 mt-2 max-w-xs leading-relaxed">
                   Configure forbidden sensitive parameters and update custom guardrail rules to block PII access.
+                </p>
+              </button>
+
+              {/* DQ Insights Configuration Card */}
+              <button
+                onClick={() => setActiveView('dq')}
+                className={`flex flex-col items-center justify-center text-center p-6 rounded-3xl border transition-all duration-300 hover:scale-[1.03] group shadow-xl ${isDark
+                  ? 'bg-axis-burgundy-dark/40 hover:bg-axis-burgundy-dark/60 border-white/10 hover:border-axis-red/30'
+                  : 'bg-white hover:bg-gray-55 border-gray-200 hover:border-axis-burgundy/20'
+                  }`}
+              >
+                <div className={`p-4.5 rounded-2xl mb-4 transition-transform group-hover:scale-110 ${isDark ? 'bg-white/5 text-axis-cream' : 'bg-axis-burgundy/5 text-axis-burgundy'}`}>
+                  <BarChart3 className="w-10 h-10 text-axis-red" />
+                </div>
+                <h3 className="text-base font-bold">DQ Insights</h3>
+                <p className="text-[11px] opacity-60 mt-2 max-w-xs leading-relaxed">
+                  Configure and manage data quality insights metrics, parameters, and categories for profile inspections.
                 </p>
               </button>
 
@@ -807,6 +921,170 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout, apiBase
           </div>
         </div>
       )}
+
+          {/* Sub-view: DQ Insights Parameter Management */}
+          {activeView === 'dq' && (
+            <div className={`w-full p-6 rounded-3xl shadow-2xl border glass space-y-4`}>
+              <div className="flex items-center justify-between pb-3 border-b border-gray-200/50 dark:border-white/10">
+                <h2 className="text-base font-extrabold flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-axis-red" /> DQ Insights Parameter Configurator
+                </h2>
+                <button
+                  onClick={() => {
+                    setEditingParam(null);
+                    setParamName('');
+                    setParamKey('');
+                    setParamDesc('');
+                    setParamCategory('');
+                    setParamStatus('Active');
+                    setIsParamFormOpen(true);
+                  }}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold text-white transition-all hover:brightness-110 ${isDark
+                    ? 'bg-gradient-to-r from-axis-red to-axis-burgundy'
+                    : 'bg-gradient-to-r from-axis-burgundy to-axis-red'}`}
+                >
+                  + Add Parameter
+                </button>
+              </div>
+
+              {/* Form Modal/Card */}
+              {isParamFormOpen && (
+                <form onSubmit={handleSaveParam} className={`p-5 rounded-2xl border space-y-4 text-xs ${isDark ? 'bg-black/20 border-white/10 text-white' : 'bg-gray-550 border-gray-200 text-gray-805'}`}>
+                  <h3 className="text-sm font-bold">{editingParam ? 'Edit' : 'Add'} DQ Insights Parameter</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1.5 text-left">
+                      <label className="text-[10px] font-bold uppercase tracking-wider opacity-60">Parameter Name</label>
+                      <input
+                        type="text"
+                        value={paramName}
+                        onChange={(e) => setParamName(e.target.value)}
+                        placeholder="e.g. Row Count"
+                        className={`px-3 py-2 text-xs rounded-xl focus:outline-none focus:ring-2 transition-all ${isDark ? 'bg-white/10 border border-white/10 text-white' : 'bg-white border border-gray-200 text-gray-700'}`}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5 text-left">
+                      <label className="text-[10px] font-bold uppercase tracking-wider opacity-60">Parameter Key (snake_case)</label>
+                      <input
+                        type="text"
+                        value={paramKey}
+                        onChange={(e) => setParamKey(e.target.value)}
+                        placeholder="e.g. row_count"
+                        className={`px-3 py-2 text-xs rounded-xl focus:outline-none focus:ring-2 transition-all ${isDark ? 'bg-white/10 border border-white/10 text-white' : 'bg-white border border-gray-200 text-gray-700'}`}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5 text-left">
+                      <label className="text-[10px] font-bold uppercase tracking-wider opacity-60">Category</label>
+                      <input
+                        type="text"
+                        value={paramCategory}
+                        onChange={(e) => setParamCategory(e.target.value)}
+                        placeholder="e.g. Completeness, Accuracy"
+                        className={`px-3 py-2 text-xs rounded-xl focus:outline-none focus:ring-2 transition-all ${isDark ? 'bg-white/10 border border-white/10 text-white' : 'bg-white border border-gray-200 text-gray-700'}`}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5 text-left">
+                      <label className="text-[10px] font-bold uppercase tracking-wider opacity-60">Status</label>
+                      <select
+                        value={paramStatus}
+                        onChange={(e) => setParamStatus(e.target.value)}
+                        className={`px-3 py-2 text-xs rounded-xl focus:outline-none focus:ring-2 transition-all ${isDark ? 'bg-axis-burgundy-dark border border-white/10 text-white' : 'bg-white border border-gray-200 text-gray-700'}`}
+                      >
+                        <option value="Active">Active</option>
+                        <option value="Inactive">Inactive</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-col gap-1.5 text-left sm:col-span-2">
+                      <label className="text-[10px] font-bold uppercase tracking-wider opacity-60">Description</label>
+                      <textarea
+                        value={paramDesc}
+                        onChange={(e) => setParamDesc(e.target.value)}
+                        placeholder="Provide description of how this metric is calculated..."
+                        className={`px-3 py-2 text-xs rounded-xl h-20 resize-none focus:outline-none focus:ring-2 transition-all ${isDark ? 'bg-white/10 border border-white/10 text-white' : 'bg-white border border-gray-200 text-gray-700'}`}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsParamFormOpen(false)}
+                      className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-all ${isDark ? 'border-white/10 hover:bg-white/5 text-white' : 'border-gray-200 hover:bg-gray-55 text-gray-700'}`}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-axis-red hover:brightness-110 transition-all"
+                    >
+                      {editingParam ? 'Update' : 'Save'} Parameter
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {loadingDq ? (
+                <div className="flex flex-col items-center justify-center py-16 space-y-2">
+                  <div className="w-8 h-8 border-4 border-axis-red/20 border-t-axis-red rounded-full animate-spin" />
+                  <span className="text-xs opacity-60 font-bold">Loading DQ parameters...</span>
+                </div>
+              ) : dqParams.length === 0 ? (
+                <div className="text-center py-16">
+                  <div className="text-sm font-bold opacity-60">No DQ Parameters Configured</div>
+                </div>
+              ) : (
+                <div className="overflow-x-auto border dark:border-white/10 rounded-2xl">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className={`border-b dark:border-white/10 font-bold uppercase tracking-wider ${isDark ? 'bg-black/20 text-white/50 border-white/10' : 'bg-gray-50 text-gray-500 border-gray-200'}`}>
+                        <th className="px-5 py-3 font-semibold">Parameter Name</th>
+                        <th className="px-5 py-3 font-semibold">Key (snake_case)</th>
+                        <th className="px-5 py-3 font-semibold">Category</th>
+                        <th className="px-5 py-3 font-semibold">Description</th>
+                        <th className="px-5 py-3 font-semibold">Status</th>
+                        <th className="px-5 py-3 font-semibold text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className={`divide-y ${isDark ? 'divide-white/10 text-gray-200' : 'divide-gray-100 text-gray-700'}`}>
+                      {dqParams.map((param) => (
+                        <tr key={param.id} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors duration-200">
+                          <td className="px-5 py-4 font-bold">{param.name}</td>
+                          <td className="px-5 py-4 font-mono text-[10px]">{param.key}</td>
+                          <td className="px-5 py-4 font-semibold">{param.category}</td>
+                          <td className="px-5 py-4 max-w-xs truncate" title={param.description}>{param.description}</td>
+                          <td className="px-5 py-4">
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${param.status === 'Active'
+                              ? 'bg-emerald-500/15 text-emerald-400'
+                              : 'bg-red-500/15 text-red-400'}`}>
+                              {param.status}
+                            </span>
+                          </td>
+                          <td className="px-5 py-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => handleEditParamClick(param)}
+                                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-colors flex items-center gap-1 ${isDark
+                                  ? 'border-white/10 hover:bg-white/10 text-white'
+                                  : 'border-gray-200 hover:bg-gray-100 text-gray-700 shadow-sm'}`}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => handleDeleteParam(param.id)}
+                                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-colors flex items-center gap-1 ${isDark
+                                  ? 'border-red-500/20 bg-red-500/10 hover:bg-red-500/20 text-red-400'
+                                  : 'border-red-150 bg-red-50 hover:bg-red-100 text-red-700 shadow-sm'}`}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
 
     </div>
   );

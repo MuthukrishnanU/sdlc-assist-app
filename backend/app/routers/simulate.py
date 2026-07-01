@@ -8,7 +8,7 @@ import duckdb
 from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from ..config.settings import get_db, MONGODB_URI
-from ..schemas.simulation import SimulationRequest, SimulationResponse, ColumnMetadata, ExecutionExplanation
+from ..schemas.simulation import SimulationRequest, SimulationResponse, ColumnMetadata, ExecutionExplanation, DQCalculationRequest
 from ..schemas.code_gen import DQInsights
 from ..services.dq_profiler import calculate_col_dq, calculate_dataframe_dq, calculate_table_level_dq
 from ..services.local_runner import clean_procedural_sql, sanitize_sql_for_duckdb, _pyspark_code_to_sql
@@ -131,6 +131,15 @@ async def simulate_data(request: SimulationRequest):
             table_dq_insights[table] = calculate_table_level_dq(table_records, meta_fields_list)
 
         column_dq_insights = {}
+        all_tables_data = sim_res.get("all_tables_data", {})
+        for table_name, table_records in all_tables_data.items():
+            table_col_insights = {}
+            if table_records:
+                cols = list(table_records[0].keys())
+                for col in cols:
+                    table_col_insights[col] = calculate_col_dq(table_records, col)
+            column_dq_insights[table_name] = table_col_insights
+
         primary_keys = {}
         for table in request.tables:
             meta_doc = db['semanticMetaStore'].find_one({"collection_name": table})
@@ -140,20 +149,10 @@ async def simulate_data(request: SimulationRequest):
             primary_keys[table] = pk
         if request.tables:
             primary_keys["Output Table"] = primary_keys.get(request.tables[0], "customer_id")
-
-        output_col_insights = {}
-        for col in column_details.keys():
-            output_col_insights[col] = calculate_col_dq(final_dataframe, col)
-        column_dq_insights["Output Table"] = output_col_insights
-
-        for table in request.tables:
-            table_records = data_by_table.get(table, [])
-            table_col_insights = {}
-            if table_records:
-                cols = list(table_records[0].keys())
-                for col in cols:
-                    table_col_insights[col] = calculate_col_dq(table_records, col)
-            column_dq_insights[table] = table_col_insights
+            
+        for key in all_tables_data.keys():
+            if key not in primary_keys:
+                primary_keys[key] = "customer_id"
 
         execution_time_ms = int((time.time() - start_time) * 1000)
         execution_time_ms = max(1, execution_time_ms)
@@ -284,7 +283,7 @@ async def simulate_data(request: SimulationRequest):
         # Persona agent is commented out/bypassed temporarily
         personas = []
 
-        return SimulationResponse(
+        response_obj = SimulationResponse(
             dataframe=final_dataframe,
             column_details=column_details,
             dq_insights=DQInsights(**dq_insights),
@@ -294,9 +293,44 @@ async def simulate_data(request: SimulationRequest):
             execution_explanation=ExecutionExplanation(**execution_explanation),
             output_guardrails=output_guardrails,
             insights=insights,
-            personas=personas
+            personas=personas,
+            all_tables_data=all_tables_data
         )
+        print("--- SIMULATION RESPONSE DEBUG ---")
+        for field_name, val in response_obj.__dict__.items():
+            print(f"Field: {field_name}, Type: {type(val)}")
+            if isinstance(val, dict):
+                for k, v in val.items():
+                    print(f"  Key: {k}, Type: {type(v)}")
+            elif isinstance(val, list) and val:
+                print(f"  First element type: {type(val[0])}")
+        print("---------------------------------")
+        return response_obj
     except HTTPException as he:
         raise he
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/dq-insights/calculate")
+async def calculate_dq_insights_endpoint(req: DQCalculationRequest):
+    try:
+        # Get the records for the selected table
+        records = req.all_tables_data.get(req.table_name, [])
+        if not records and req.table_name == "Output Table" and "Output Table" not in req.all_tables_data:
+            # Fallback if somehow Output Table is passed as a list elsewhere
+            pass
+
+        # Calculate metrics for the specific column
+        metrics_calculated = calculate_col_dq(records, req.column_name)
+        
+        # Filter metrics by requested parameters
+        result = {}
+        for m in req.metrics:
+            result[m] = metrics_calculated.get(m)
+            
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

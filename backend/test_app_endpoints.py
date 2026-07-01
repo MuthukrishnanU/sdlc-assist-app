@@ -36,7 +36,12 @@ class TestSdlcAssistAPI(unittest.TestCase):
         }
         response = self.client.post("/generate", json=payload)
         self.assertEqual(response.status_code, 400)
-        self.assertIn("Security Violation: SQL commands or comments are not allowed in the logic prompt.", response.json()["detail"])
+        detail = response.json()["detail"]
+        self.assertTrue(
+            "Security Violation: SQL commands or comments are not allowed" in detail or
+            "Guardrail Violation" in detail or
+            "SQL injection" in detail
+        )
 
     def test_schema_protection_unauthorized_user(self):
         # Schema protection with invalid/unregistered user

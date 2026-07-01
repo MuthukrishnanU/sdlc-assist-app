@@ -80,7 +80,8 @@ def run_execution_guardrails(userId: str, format_str: str, code_str: str, tables
     
     fmt = (format_str or "SQL").upper()
     is_spark = "SPARK" in fmt
-    is_sql = any(x in fmt for x in ["SQL", "POSTGRE", "MY", "ORACLE", "BIGQUERY", "SNOWFLAKE", "ICEBERG", "PL/SQL"]) and "NOSQL" not in fmt and not is_spark
+    is_plsql = "PL/SQL" in fmt or "PLSQL" in fmt
+    is_sql = any(x in fmt for x in ["SQL", "POSTGRE", "MY", "ORACLE", "BIGQUERY", "SNOWFLAKE", "ICEBERG"]) and "NOSQL" not in fmt and not is_spark and not is_plsql
     
     # Guardrail 6: DDL & DML Prevention (SQL AST Check)
     if is_sql:

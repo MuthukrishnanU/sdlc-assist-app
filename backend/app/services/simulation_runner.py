@@ -125,6 +125,7 @@ async def run_simulation_logic(
     dfs = {}
     records_processed = 0
     data_by_table = {}
+    all_temps = {}
     
     if mock_inputs is not None:
         for table in tables:
@@ -240,11 +241,29 @@ async def run_simulation_logic(
                                 if var_name_lower == t_lower or var_name_lower == f"{t_lower}df" or var_name_lower == f"df{t_lower}":
                                     return True
                             return False
-
+ 
                         for k, v in reversed(list(locals_dict.items())):
                             if isinstance(v, DuckSparkDataFrame) and not is_source_table_var(k):
                                   extracted_df = v
                                   break
+
+                    # Collect intermediate dataframes
+                    for var_name, val in locals_dict.items():
+                        is_df = isinstance(val, pd.DataFrame)
+                        if not is_df and (hasattr(val, 'toPandas') and callable(getattr(val, 'toPandas'))):
+                            is_df = True
+                        if is_df:
+                            is_src = False
+                            for t in tables:
+                                if var_name.lower().replace("_", "") == t.lower().replace("_", ""):
+                                    is_src = True
+                            if not is_src and var_name not in ('result_df', 'df', 'final_df', 'output_df'):
+                                try:
+                                    temp_df_pd = val.toPandas() if hasattr(val, 'toPandas') else val
+                                    temp_df_pd = temp_df_pd.where(pd.notnull(temp_df_pd), None)
+                                    all_temps[f"{var_name}_temp"] = temp_df_pd.head(sample_data_size).to_dict(orient="records")
+                                except Exception:
+                                    pass
                 except Exception:
                     pyspark_exec_failed = True
                 
@@ -403,7 +422,21 @@ async def run_simulation_logic(
                     exec(py_code, global_vars, local_vars)
                     simulate_fn = local_vars.get("simulate")
                     if simulate_fn:
-                        result_df = simulate_fn(dfs)
+                        res = simulate_fn(dfs)
+                        if isinstance(res, tuple) and len(res) == 2:
+                            result_df, intermediate_dfs = res
+                        else:
+                            result_df = res
+                            intermediate_dfs = {}
+                        
+                        if intermediate_dfs:
+                            for var_name, val in intermediate_dfs.items():
+                                if isinstance(val, pd.DataFrame) and not val.empty:
+                                    try:
+                                        temp_df_pd = val.where(pd.notnull(val), None)
+                                        all_temps[f"{var_name}_temp"] = temp_df_pd.head(sample_data_size).to_dict(orient="records")
+                                    except Exception:
+                                        pass
                         executed_successfully = True
                         llm_simulated = True
             except Exception:
@@ -514,6 +547,62 @@ async def run_simulation_logic(
                     }
                 }
 
+    cte_data = {}
+    is_sql_format = any(x in fmt for x in ["SQL", "POSTGRE", "MY", "ORACLE", "BIGQUERY", "SNOWFLAKE", "ICEBERG", "PL/SQL"]) and "NOSQL" not in fmt and not is_spark_format
+    if is_sql_format and code_str:
+        clean_code = re.sub(r'--.*', '', code_str)
+        clean_code = re.sub(r'/\*.*?\*/', '', clean_code, flags=re.DOTALL)
+        ctes_found = re.findall(r'(?:WITH|,)\s*([a-zA-Z_]\w*)\s+AS\s*\(', clean_code, re.IGNORECASE)
+        cte_names = [c.strip() for c in ctes_found]
+        
+        if cte_names:
+            try:
+                con_cte = duckdb.connect()
+                for table_name, df_tbl in dfs.items():
+                    if not df_tbl.empty:
+                        con_cte.register(table_name, df_tbl)
+                
+                for cte_name in cte_names:
+                    with_match = re.search(r'\bWITH\s+', clean_code, re.IGNORECASE)
+                    if with_match:
+                        start_idx = with_match.start()
+                        paren_count = 0
+                        in_cte_def = False
+                        last_closed_idx = -1
+                        i = with_match.end()
+                        while i < len(clean_code):
+                            char = clean_code[i]
+                            if char == '(':
+                                paren_count += 1
+                                in_cte_def = True
+                            elif char == ')':
+                                paren_count -= 1
+                                if paren_count == 0 and in_cte_def:
+                                    last_closed_idx = i
+                                    in_cte_def = False
+                            i += 1
+                        
+                        if last_closed_idx != -1:
+                            cte_definitions = clean_code[start_idx:last_closed_idx+1]
+                            cte_query = f"{cte_definitions}\nSELECT * FROM {cte_name};"
+                            try:
+                                cte_df = con_cte.execute(cte_query).fetchdf()
+                                cte_df = cte_df.where(pd.notnull(cte_df), None)
+                                cte_data[f"CTE: {cte_name}"] = cte_df.head(sample_data_size).to_dict(orient="records")
+                            except Exception as e:
+                                print(f"[ERROR] Failed to run CTE query for {cte_name}: {e}")
+            except Exception as e:
+                print(f"[ERROR] Failed to run CTE execution logic: {e}")
+
+    all_tables_data = {}
+    all_tables_data["Output Table"] = final_dataframe
+    for table in tables:
+        all_tables_data[table] = data_by_table.get(table, [])
+    for k, v in cte_data.items():
+        all_tables_data[k] = v
+    for k, v in all_temps.items():
+        all_tables_data[k] = v
+
     return {
         "final_dataframe": final_dataframe,
         "column_details": column_details,
@@ -521,5 +610,6 @@ async def run_simulation_logic(
         "used_duckdb_spark": used_duckdb_spark,
         "records_processed": records_processed,
         "data_by_table": data_by_table,
-        "meta_fields": meta_fields
+        "meta_fields": meta_fields,
+        "all_tables_data": all_tables_data
     }

@@ -566,6 +566,56 @@ However, in Conversational BI page, the generated code is not optimized to gener
 This causes a lot of bad user experience as the data size increases exponentially and simulation fails.
 Please provide the solution for the same.
 
+ToDo01Jul26:
+(1) Code Conversion Upload button place change:
+The "Upload Legacy Code" section along with the "Choose File" button needs to be moved to just below "Code Conversion" checkbox.
+The "Generate Code" button must remain at the bottom only.
+
+(2) Output tables choice:
+User must be given provision to view all the tables that are generated or used in the code including the selected tables and choose which tables to be viewed.
+On click of the "Run Code" button, the code must be executed and the "Simulated Output Preview" section must have a new dropdown (before the Search box).
+This new dropdown must have the names of all the tables (selected from the InputSection, as well as generated or used in the code, as well as Result/Output Table).
+If the generated code has any CTE (Common Table Expression), then it must be displayed in the dropdown with prefix "CTE:".
+If the generatd code has any intermediate dataframes or variables (storing a temporary result table), this must be displayed in the dropdown with suffix "_temp".
+On selecting any table from this dropdown, the output tables must be displayed in a table format below.
+Also, on selecting any table from this dropdown, their subsequent columns must be autopopulated in the "Inspect Column" dropdown.
+
+(3) Lineage implementation:
+After the code is generated - provide a button "Generate Lineage" just below the "Generated Code" section.
+On click of this button, the lineage must be generated and displayed.
+If possible, implement Interactive DAG "Directed Acyclic Graph" using d3.js or react-flow.
+The existing division to show the "Lineage" from semanticMetaStore (on selecting any option from the "Inspect Column" dropdown) shall be utilized for the Visualization if needed.
+
+(4) Code Editing:
+The "Generated Code" section has a provision to Copy the generated code.
+A new icon to edit the code must be placed immediately next to this copy icon.
+On click of this edit icon, a modal/popup must open showing the generated code in an editable format along with a "Update Code" button at the bottom/end of the modal/popup.
+The user can then make the necessary modifications in the code and click on "Update Code" button.
+On click of this update button, the code must be updated and the "Generated Code" section must show the updated code.
+The further process like "Run Code" etc must work on the updated code.
+
+(5) DECLARE must be ignored for PL/SQL code format:
+Currently when PL/SQL is selected as the format, we are getting an error "Security Violation: SQL statement starting with unauthorized keyword 'DECLARE'. Only SELECT and WITH statements are allowed." in the "Execution Explanation" modal/popup.
+So, we need to modify the code to ignore the "DECLARE" keyword for PL/SQL code format.
+
+(6) DQ Insights to be made configurable and selectable:
+Currently DQ Insights are generated along with the code when "Run Code" button is clicked.
+We need to change this implementation to user-selectable format.
+Basically, the "Table" dropdown must include - all the tables (same as mentioned in point (2)).
+On selecting any of the table from this dropdown, the subsequent columns must be autopopulated in the "Column" dropwdown.
+Also, an additional dropdown "Select Params" must be available - which will be a Multiselect dropdown with search option.
+By default have the following selected in "Select Params" dropdown - [Row Count, Null Values, Distinct Values, Duplicate Rows].
+User can select any number of options from this dropdown based on his requirement and click on "Generate Insights" button.
+On click of this button, the DQ Insights must be generated and displayed in the same grid layout (maximum 4 parameters in a row).
+Furthermore, admin section should have a provision to view and manage DQ Insights.
+In the AdminDashboard - show a new card/division with the heading "DQ Insights" after "Add New PII Parameter" option.
+On click of this card, we must be navigated to a new page where we can view the existing parameters (Row Count, Null Values, Distinct Values, Duplicate Rows etc) in a tabular format - that are already configured in "dqInsightsParams" MongoDB table/collection.
+Options to edit and delete the params must also be available in the table - similar to "AddNewPiiData.tsx" page.
+Above the table (showing existing parameters), provide a form to add new parameter.
+
+Please confirm if all of the above are possible.
+Provide me with an Implementation Plan or update the existing Implementation Plan for all the above mentioned points.
+
 ToDoLater:
 (1) Framework Implementation:
 I want to implement a "Framework Establishment" feature for admin.
