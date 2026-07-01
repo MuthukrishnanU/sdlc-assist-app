@@ -1,5 +1,5 @@
 import React from 'react';
-import { Terminal, Activity, Rocket, GitBranch, CheckCircle2, Search, Info, Database, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, Download, Save, X, Cpu, Coins, Moon, Sun, AlertCircle, CheckSquare, Copy, Check, Edit2 } from 'lucide-react';
+import { Terminal, Activity, Rocket, GitBranch, CheckCircle2, Search, Info, Database, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, Download, Save, X, Cpu, Coins, Moon, Sun, AlertCircle, CheckSquare, Copy, Check, Edit2, RefreshCw } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import axios from 'axios';
 //import MultiSelect from './MultiSelect';
@@ -91,7 +91,10 @@ const MainSection: React.FC<MainSectionProps> = ({
     }
   };
 
+  const [isRefreshingParams, setIsRefreshingParams] = React.useState(false);
+
   const fetchDqConfigParams = React.useCallback(async () => {
+    setIsRefreshingParams(true);
     try {
       const response = await axios.get(`${apiBaseUrl}/dq-insights/parameters`);
       const active = response.data.filter((p: any) => p.status === 'Active');
@@ -101,6 +104,8 @@ const MainSection: React.FC<MainSectionProps> = ({
       setSelectedDqParams(availableDefaults.length > 0 ? availableDefaults : active.slice(0, 4).map((p: any) => p.key));
     } catch (err) {
       console.error('Failed to load DQ parameters configuration:', err);
+    } finally {
+      setIsRefreshingParams(false);
     }
   }, [apiBaseUrl]);
 
@@ -506,10 +511,10 @@ const MainSection: React.FC<MainSectionProps> = ({
     return Object.keys(tableData[0] || {});
   }, [selectedDqTable, allTablesData]);
 
-  const activeInsights = React.useMemo(() => {
+  /* const activeInsights = React.useMemo(() => {
     if (!simulationData) return null;
     return simulationData.column_dq_insights?.[selectedDqTable]?.[selectedDqColumn] || null;
-  }, [selectedDqTable, selectedDqColumn, simulationData]);
+  }, [selectedDqTable, selectedDqColumn, simulationData]); */
 
   React.useEffect(() => {
     console.log(personasList);
@@ -2233,13 +2238,26 @@ const MainSection: React.FC<MainSectionProps> = ({
                   : 'bg-white text-gray-800 border-gray-200'}`}>
                   <div className="flex justify-between items-center pb-2 mb-2 border-b border-white/10">
                     <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Metrics Checklist</span>
-                    <button
-                      type="button"
-                      onClick={() => setIsDqParamsDropdownOpen(false)}
-                      className="text-xs font-bold text-axis-red hover:underline"
-                    >
-                      Done
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={fetchDqConfigParams}
+                        disabled={isRefreshingParams}
+                        className={`p-1 rounded-lg transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${
+                          isDark ? 'text-white/60 hover:text-white' : 'text-gray-500 hover:text-gray-800'
+                        }`}
+                        title="Refresh parameters"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingParams ? 'animate-spin' : ''}`} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsDqParamsDropdownOpen(false)}
+                        className="text-xs font-bold text-axis-red hover:underline"
+                      >
+                        Done
+                      </button>
+                    </div>
                   </div>
                   <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                     {dqConfigParams.map((param) => {
@@ -3941,6 +3959,6 @@ const MainSection: React.FC<MainSectionProps> = ({
   );
 };
 
-const HashIcon = () => <span className="text-xs text-gray-500">#</span>;
+//const HashIcon = () => <span className="text-xs text-gray-500">#</span>;
 
 export default MainSection;

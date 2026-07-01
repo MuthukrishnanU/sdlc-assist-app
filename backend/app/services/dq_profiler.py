@@ -2,6 +2,8 @@ import json
 import pandas as pd
 
 def calculate_col_dq(records: list, col: str) -> dict:
+    import re
+    
     row_count = len(records)
     null_count = sum(1 for r in records if r.get(col) is None or r.get(col) == "")
     empty_string_count = sum(1 for r in records if isinstance(r.get(col), str) and r.get(col).strip() == "")
@@ -16,12 +18,44 @@ def calculate_col_dq(records: list, col: str) -> dict:
             numeric_values.append(float(val))
         except (ValueError, TypeError):
             pass
-    
+            
+    # Basic statistics
     minimum = min(numeric_values) if numeric_values else None
     maximum = max(numeric_values) if numeric_values else None
     average = round(sum(numeric_values) / len(numeric_values), 2) if numeric_values else None
     
+    # Newly requested metrics
+    sum_val = round(sum(numeric_values), 2) if numeric_values else 0.0
+    
+    median_val = None
+    stddev_val = None
+    variance_val = None
+    p25 = None
+    p50 = None
+    p75 = None
+    percentiles_str = "-"
+    
+    if numeric_values:
+        series = pd.Series(numeric_values)
+        median_val = round(float(series.median()), 2)
+        stddev_val = round(float(series.std()), 2) if len(numeric_values) > 1 else 0.0
+        variance_val = round(float(series.var()), 2) if len(numeric_values) > 1 else 0.0
+        p25 = round(float(series.quantile(0.25)), 2)
+        p50 = round(float(series.quantile(0.50)), 2)
+        p75 = round(float(series.quantile(0.75)), 2)
+        percentiles_str = f"25%: {p25}, 50%: {p50}, 75%: {p75}"
+        
+    zero_count = sum(1 for x in numeric_values if x == 0.0)
+    # Also check string zero if not parsed
+    zero_count += sum(1 for x in non_null_vals if str(x).strip() in ("0", "0.0") and x not in numeric_values)
+    
+    negative_count = sum(1 for x in numeric_values if x < 0.0)
+    
+    # Find any character other than alphanumeric, spaces, commas, periods, question marks, exclamation marks, or hyphens
+    special_char_count = sum(1 for val in non_null_vals if re.search(r'[^a-zA-Z0-9\s.,?!-]', str(val)))
+
     return {
+        # Defaults
         "row_count": row_count,
         "null_values": null_count,
         "duplicate_rows": duplicate_count,
@@ -29,7 +63,52 @@ def calculate_col_dq(records: list, col: str) -> dict:
         "maximum": maximum,
         "average": average,
         "distinct_values": distinct_values_count,
-        "empty_strings": empty_string_count
+        "empty_strings": empty_string_count,
+        
+        # Variations for defaults
+        "min": minimum,
+        "max": maximum,
+        "mean": average,
+        
+        # Sum
+        "sum": sum_val,
+        
+        # Median
+        "median": median_val,
+        
+        # Standard Deviation
+        "stddev": stddev_val,
+        "standard_deviation": stddev_val,
+        "standard_deviation_variance": stddev_val,
+        "standard_deviation_&_variance": stddev_val,
+        
+        # Variance
+        "variance": variance_val,
+        
+        # Zeros
+        "zero_count": zero_count,
+        "zeros": zero_count,
+        "zero": zero_count,
+        
+        # Negatives
+        "negative_value_count": negative_count,
+        "negative_values": negative_count,
+        "negatives": negative_count,
+        "negative": negative_count,
+        
+        # Special characters
+        "special_character_count": special_char_count,
+        "special_characters": special_char_count,
+        "special_char_count": special_char_count,
+        
+        # Percentiles
+        "percentiles": percentiles_str,
+        "percentile_25": p25,
+        "percentile_50": p50,
+        "percentile_75": p75,
+        "25th_percentile": p25,
+        "50th_percentile": p50,
+        "75th_percentile": p75
     }
 
 def calculate_dataframe_dq(final_dataframe: list, column_details: dict) -> dict:
