@@ -609,7 +609,7 @@ const InputSection: React.FC<InputSectionProps> = ({
             {/* Select LLM Model */}
             <CustomDropdown
               label="Select LLM Model"
-              options={['gpt-4o', 'gemini-3.5-flash', 'mistral-large-latest', 'meta-llama/Llama-3.3-70B-Instruct-Turbo', 'moonshotai/Kimi-K2.6']}
+              options={['gpt-4o', 'gemini-3.5-flash', 'mistral-large-latest', 'meta-llama/Llama-3.3-70B-Instruct-Turbo', 'Qwen/Qwen3.6-Plus', 'moonshotai/Kimi-K2.6', 'deepseek-ai/DeepSeek-V4-Pro']}
               value={formData.model}
               onChange={(val) => setFormData({ ...formData, model: val })}
               disabled={isConvertCodeEnabled}
@@ -765,7 +765,7 @@ const InputSection: React.FC<InputSectionProps> = ({
           {/* Select LLM Model */}
           <CustomDropdown
             label="Select LLM Model"
-            options={['gpt-4o', 'gemini-3.5-flash', 'mistral-large-latest', 'meta-llama/Llama-3.3-70B-Instruct-Turbo', 'moonshotai/Kimi-K2.6']}
+            options={['gpt-4o', 'gemini-3.5-flash', 'mistral-large-latest', 'meta-llama/Llama-3.3-70B-Instruct-Turbo', 'Qwen/Qwen3.6-Plus', 'moonshotai/Kimi-K2.6', 'deepseek-ai/DeepSeek-V4-Pro']}
             value={cbiFormData.model}
             onChange={(val) => setCbiFormData({ ...cbiFormData, model: val })}
             icon={<Cpu className={`w-3 h-3 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />}

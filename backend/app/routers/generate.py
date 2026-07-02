@@ -14,7 +14,9 @@ PRICING = {
     "gemini-3.5-flash": {"input": 0.000000075, "output": 0.0000003},
     "mistral": {"input": 0.000002, "output": 0.000006},
     "llama": {"input": 0.0000007, "output": 0.0000007},
-    "kimi": {"input": 0.0000007, "output": 0.0000007}
+    "qwen": {"input": 0.0000007, "output": 0.0000007},
+    "kimi": {"input": 0.0000007, "output": 0.0000007},
+    "deepseek": {"input": 0.0000007, "output": 0.0000007}
 }
 
 def detect_tables_and_columns(sql_code: str, db_inst) -> tuple:

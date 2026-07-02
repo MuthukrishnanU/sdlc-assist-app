@@ -16,7 +16,9 @@ def get_or_create_quota(db, role: str) -> dict:
                 "gemini-3.5-flash": { "total_tokens": 10000000, "used_tokens": 0 },
                 "mistral": { "total_tokens": 1000000, "used_tokens": 0 },
                 "llama": { "total_tokens": 1000000, "used_tokens": 0 },
-                "kimi": { "total_tokens": 1000000, "used_tokens": 0 }
+                "qwen": { "total_tokens": 1000000, "used_tokens": 0 },
+                "kimi": { "total_tokens": 1000000, "used_tokens": 0 },
+                "deepseek": { "total_tokens": 1000000, "used_tokens": 0 }
             },
             "remaining_balance_usd": 15.00,
             "reset_date": default_reset_date

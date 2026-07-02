@@ -88,6 +88,20 @@ except Exception:
     pass
 
 
+def get_duckdb_connection() -> duckdb.DuckDBPyConnection:
+    config = {
+        "memory_limit": "256MB",
+        "temp_directory": "/tmp/duckdb_temp/",
+        "threads": "1"
+    }
+    try:
+        import os
+        os.makedirs(config["temp_directory"], exist_ok=True)
+    except Exception:
+        pass
+    return duckdb.connect(config=config)
+
+
 async def run_simulation_logic(
     tables: list,
     columns: list,
@@ -162,6 +176,14 @@ async def run_simulation_logic(
             import duckdb.experimental.spark.sql.functions as spark_funcs
             
             spark = SparkSession.builder.getOrCreate()
+            try:
+                import os
+                os.makedirs("/tmp/duckdb_temp/", exist_ok=True)
+                spark.conn.execute("SET memory_limit = '256MB';")
+                spark.conn.execute("SET temp_directory = '/tmp/duckdb_temp/';")
+                spark.conn.execute("SET threads = 1;")
+            except Exception:
+                pass
             
             globals_dict = {
                 "spark": spark,
@@ -259,7 +281,9 @@ async def run_simulation_logic(
                                     is_src = True
                             if not is_src and var_name not in ('result_df', 'df', 'final_df', 'output_df'):
                                 try:
-                                    temp_df_pd = val.toPandas() if hasattr(val, 'toPandas') else val
+                                    temp_df_pd = val.toPandas() if hasattr(val, 'toPandas') else val.copy()
+                                    for col_dt in temp_df_pd.select_dtypes(include=['datetime', 'datetimetz']).columns:
+                                        temp_df_pd[col_dt] = temp_df_pd[col_dt].dt.strftime("%Y-%m-%d %H:%M:%S")
                                     temp_df_pd = temp_df_pd.where(pd.notnull(temp_df_pd), None)
                                     all_temps[f"{var_name}_temp"] = temp_df_pd.head(sample_data_size).to_dict(orient="records")
                                 except Exception:
@@ -275,7 +299,7 @@ async def run_simulation_logic(
                             sql_from_pyspark = await generator.translate_pyspark_to_sql(code_str, list(dfs.keys()))
                         
                         if sql_from_pyspark:
-                            con_spark_fallback = duckdb.connect()
+                            con_spark_fallback = get_duckdb_connection()
                             for t_name_fb, df_fb in dfs.items():
                                 if not df_fb.empty:
                                     con_spark_fallback.register(t_name_fb, df_fb)
@@ -294,7 +318,7 @@ async def run_simulation_logic(
     is_sql_format = any(x in fmt for x in ["SQL", "POSTGRE", "MY", "ORACLE", "BIGQUERY", "SNOWFLAKE", "ICEBERG", "PL/SQL"]) and "NOSQL" not in fmt and not is_spark_format
     if is_sql_format and code_str:
         try:
-            con = duckdb.connect()
+            con = get_duckdb_connection()
             for table_name, df in dfs.items():
                 if not df.empty:
                     con.register(table_name, df)
@@ -400,6 +424,7 @@ async def run_simulation_logic(
         llm_simulated = False
         if code_str:
             try:
+                print("[INFO] Fallback simulation: local execution failed. Starting LLM-based pandas simulation...")
                 from ..agents.simulation_agent import generate_pandas_simulation
                 py_code = await generate_pandas_simulation(
                     format=format_str or "PySpark",
@@ -433,14 +458,18 @@ async def run_simulation_logic(
                             for var_name, val in intermediate_dfs.items():
                                 if isinstance(val, pd.DataFrame) and not val.empty:
                                     try:
-                                        temp_df_pd = val.where(pd.notnull(val), None)
+                                        temp_df_pd = val.copy()
+                                        for col_dt in temp_df_pd.select_dtypes(include=['datetime', 'datetimetz']).columns:
+                                            temp_df_pd[col_dt] = temp_df_pd[col_dt].dt.strftime("%Y-%m-%d %H:%M:%S")
+                                        temp_df_pd = temp_df_pd.where(pd.notnull(temp_df_pd), None)
                                         all_temps[f"{var_name}_temp"] = temp_df_pd.head(sample_data_size).to_dict(orient="records")
                                     except Exception:
                                         pass
                         executed_successfully = True
                         llm_simulated = True
-            except Exception:
-                pass
+                        print("[INFO] Fallback simulation: LLM-based pandas simulation succeeded!")
+            except Exception as e:
+                print(f"[ERROR] Fallback simulation: LLM-based pandas simulation failed: {e}")
 
         if not llm_simulated:
             try:
@@ -557,7 +586,7 @@ async def run_simulation_logic(
         
         if cte_names:
             try:
-                con_cte = duckdb.connect()
+                con_cte = get_duckdb_connection()
                 for table_name, df_tbl in dfs.items():
                     if not df_tbl.empty:
                         con_cte.register(table_name, df_tbl)

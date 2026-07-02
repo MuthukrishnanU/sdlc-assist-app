@@ -36,6 +36,10 @@ async def call_llm(prompt: str, model_name: str, response_format_json: bool = Tr
             model_key = "mistral"
         elif "llama" in model_name.lower():
             model_key = "llama"
+        elif "qwen" in model_name.lower():
+            model_key = "qwen"
+        elif "deepseek" in model_name.lower():
+            model_key = "deepseek"
         elif "kimi" in model_name.lower():
             model_key = "kimi"
         else:
@@ -120,15 +124,16 @@ async def call_llm(prompt: str, model_name: str, response_format_json: bool = Tr
             
         return response.content, prompt_tokens, completion_tokens
         
-    elif model_key in ["llama", "qwen", "kimi"]:
+    elif model_key in ["llama", "qwen", "kimi", "deepseek"]:
         together_key = os.getenv("TOGETHER_API_KEY")
         if not together_key:
             raise ValueError("TOGETHER_API_KEY is not set.")
             
         together_mapping = {
             "llama": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-            "qwen": "Qwen/Qwen2.5-7B-Instruct-Turbo",
-            "kimi": "moonshotai/Kimi-K2.6"
+            "qwen": "Qwen/Qwen3.6-Plus",
+            "kimi": "moonshotai/Kimi-K2.6",
+            "deepseek": "deepseek-ai/DeepSeek-V4-Pro"
         }
         together_model = together_mapping.get(model_key)
         together_client = AsyncOpenAI(api_key=together_key, base_url="https://api.together.xyz/v1")
@@ -137,15 +142,23 @@ async def call_llm(prompt: str, model_name: str, response_format_json: bool = Tr
             "model": together_model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.0,
-            "max_tokens": 4096
+            "max_tokens": 4096,
+            "stream": True,
+            "stream_options": {"include_usage": True}
         }
         if response_format_json:
             kwargs["response_format"] = {"type": "json_object"}
             
-        response = await together_client.chat.completions.create(**kwargs)
-        content = response.choices[0].message.content
-        prompt_tokens = response.usage.prompt_tokens if response.usage else 0
-        completion_tokens = response.usage.completion_tokens if response.usage else 0
+        response_stream = await together_client.chat.completions.create(**kwargs)
+        chunks = []
+        async for chunk in response_stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                chunks.append(chunk.choices[0].delta.content)
+            if chunk.usage:
+                prompt_tokens = chunk.usage.prompt_tokens
+                completion_tokens = chunk.usage.completion_tokens
+                
+        content = "".join(chunks)
         return content, prompt_tokens, completion_tokens
         
     else:
