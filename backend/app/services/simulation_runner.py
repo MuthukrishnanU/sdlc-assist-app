@@ -527,8 +527,8 @@ async def run_simulation_logic(
                 pass
 
     if result_df is not None and not result_df.empty:
-        #if 'customer_id' in result_df.columns:
-        #    result_df = result_df.drop_duplicates(subset=['customer_id'])
+        if 'customer_id' in result_df.columns:
+            result_df = result_df.drop_duplicates(subset=['customer_id'])
         for col in list(result_df.columns):
             if col.startswith('_'):
                 result_df.drop(columns=[col], inplace=True)

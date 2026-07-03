@@ -26,6 +26,11 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, apiBaseUrl }) => 
   const [regSuccess, setRegSuccess] = React.useState<string | null>(null);
   const [regLoading, setRegLoading] = React.useState(false);
 
+  const userIdRef = React.useRef<HTMLInputElement>(null);
+  React.useEffect(() => {
+    (!!userIdRef && !!userIdRef.current) && userIdRef.current.focus();
+  }, []);
+
   const demoAccounts = [
     { role: 'Data Engineering', username: 'de_user_1', password: 'de_pass_1', desc: 'Access core Data Engineering tables' },
     { role: 'Healthcare', username: 'hc_user_1', password: 'hc_pass_1', desc: 'Access patients and clinical data' },
@@ -181,6 +186,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, apiBaseUrl }) => 
                   type="text"
                   placeholder="Enter your user ID"
                   value={userId}
+                  ref={userIdRef}
                   onChange={(e) => setUserId(e.target.value)}
                   className={`w-full rounded-xl pl-4 pr-4 py-3 text-sm focus:outline-none focus:ring-2 transition-all ${isDark
                     ? 'bg-white/10 border border-white/10 text-white placeholder-white/30 focus:ring-axis-red/30'
