@@ -20,3 +20,5 @@ pypdf==6.13.2
 lxml==6.1.1
 python-docx==1.2.0
 langgraph==1.2.2
+sqlglot==25.5.0
+sqlframe==4.1.0

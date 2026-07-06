@@ -3,19 +3,41 @@ import ast
 
 def clean_procedural_sql(code: str) -> str:
     code_upper = code.upper()
-    if "DECLARE" not in code_upper or "BEGIN" not in code_upper:
+    if "BEGIN" not in code_upper:
         return code
         
     try:
-        # Extract DECLARE and BEGIN sections
-        declare_match = re.search(r'DECLARE(.*?)BEGIN', code, re.DOTALL | re.IGNORECASE)
-        begin_match = re.search(r'BEGIN(.*?)END', code, re.DOTALL | re.IGNORECASE)
-        
-        if not declare_match or not begin_match:
-            return code
+        if "DECLARE" in code_upper:
+            # Extract DECLARE and BEGIN sections
+            declare_match = re.search(r'DECLARE(.*?)BEGIN', code, re.DOTALL | re.IGNORECASE)
+            begin_match = re.search(r'BEGIN(.*?)END', code, re.DOTALL | re.IGNORECASE)
             
-        declare_section = declare_match.group(1)
-        begin_section = begin_match.group(1).strip()
+            if not declare_match or not begin_match:
+                return code
+                
+            declare_section = declare_match.group(1)
+            begin_section = begin_match.group(1).strip()
+        else:
+            begin_match = re.search(r'BEGIN(.*?)END', code, re.DOTALL | re.IGNORECASE)
+            if not begin_match:
+                return code
+            begin_section = begin_match.group(1).strip()
+            
+            # If there's a SELECT statement inside, extract it
+            select_match = re.search(r'((?:WITH|SELECT)\b.*)', begin_section, re.DOTALL | re.IGNORECASE)
+            if select_match:
+                cleaned_sql = select_match.group(1).strip()
+            else:
+                cleaned_sql = begin_section
+                
+            # Remove any trailing INTO clauses if they exist (e.g., SELECT ... INTO ... FROM ...)
+            cleaned_sql = re.sub(r'\bINTO\s+.*?\s+(?=\bFROM\b)', '', cleaned_sql, flags=re.IGNORECASE)
+            
+            # Remove trailing semicolon if present
+            if cleaned_sql.endswith(';'):
+                cleaned_sql = cleaned_sql[:-1].strip()
+                
+            return cleaned_sql
         
         # Parse variables: name and value
         vars_dict = {}
@@ -143,9 +165,19 @@ def sanitize_sql_for_duckdb(code: str) -> str:
             sql = sql[1:-1].strip()
         else:
             break
+            
+    # Find the start of the SQL query (first occurrence of SELECT or WITH)
+    sql_start_idx = len(sql)
+    sql_match = re.search(r'\b(WITH|SELECT)\b', sql, re.IGNORECASE)
+    if sql_match:
+        pre_sql = sql[:sql_match.start()]
+        sql_part = sql[sql_match.start():]
+    else:
+        pre_sql = sql
+        sql_part = ""
     
-    # 4. Strip Python comments (lines starting with #) and import/print lines
-    lines = sql.split('\n')
+    # 4. Strip Python comments (lines starting with #) and import/print lines from pre-SQL section
+    lines = pre_sql.split('\n')
     cleaned_lines = []
     for line in lines:
         stripped = line.strip()
@@ -159,7 +191,12 @@ def sanitize_sql_for_duckdb(code: str) -> str:
         if re.match(r'^[a-zA-Z_]\w*\s*=\s*(?!.*\bSELECT\b)', stripped, re.IGNORECASE):
             continue
         cleaned_lines.append(line)
-    sql = '\n'.join(cleaned_lines).strip()
+    pre_sql = '\n'.join(cleaned_lines).strip()
+    
+    if pre_sql:
+        sql = pre_sql + '\n' + sql_part
+    else:
+        sql = sql_part
     
     # 5. If there's a SELECT statement buried in the text, extract it
     if not sql.upper().startswith('SELECT') and not sql.upper().startswith('WITH'):
@@ -167,8 +204,13 @@ def sanitize_sql_for_duckdb(code: str) -> str:
         if select_match:
             sql = select_match.group(1).strip()
     
-    # 6. Remove trailing semicolons
+    # 6. Remove trailing semicolons and mismatched trailing quote marks
     sql = sql.rstrip(';').strip()
+    for quote in ['"""', "'''", '"', "'"]:
+        if sql.endswith(quote):
+            if sql.count(quote) % 2 != 0:
+                sql = sql[:-len(quote)].strip()
+                break
     
     # 7. Convert Spark/MySQL DATE_FORMAT functions to DuckDB strftime
     def replace_date_format(match):

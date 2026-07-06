@@ -13,6 +13,7 @@ def get_or_create_quota(db, role: str) -> dict:
             "role": role,
             "limits": {
                 "gpt-4o": { "total_tokens": 500000, "used_tokens": 0 },
+                "o3-mini": { "total_tokens": 1000000, "used_tokens": 0 },
                 "gemini-3.5-flash": { "total_tokens": 10000000, "used_tokens": 0 },
                 "mistral": { "total_tokens": 1000000, "used_tokens": 0 },
                 "llama": { "total_tokens": 1000000, "used_tokens": 0 },
@@ -62,7 +63,31 @@ def get_or_create_quota(db, role: str) -> dict:
                     print(f"[INFO] Quotas for role '{role}' successfully reset because reset_date ({reset_date_str}) was reached.")
             except Exception as e:
                 print(f"[ERROR] Failed to evaluate/reset quota: {e}")
+        # Ensure all models are present in limits
+        """ limits_updated = False
+        default_limits = {
+            "gpt-4o": { "total_tokens": 500000, "used_tokens": 0 },
+            "o3-mini": { "total_tokens": 1000000, "used_tokens": 0 },
+            "gemini-3.5-flash": { "total_tokens": 10000000, "used_tokens": 0 },
+            "mistral": { "total_tokens": 1000000, "used_tokens": 0 },
+            "llama": { "total_tokens": 1000000, "used_tokens": 0 },
+            "qwen": { "total_tokens": 1000000, "used_tokens": 0 },
+            "kimi": { "total_tokens": 1000000, "used_tokens": 0 },
+            "deepseek": { "total_tokens": 1000000, "used_tokens": 0 }
+        }
+        if "limits" not in quota:
+            quota["limits"] = {}
+        for k, v in default_limits.items():
+            if k not in quota["limits"]:
+                quota["limits"][k] = v
+                limits_updated = True
                 
+        if limits_updated:
+            db["modelQuotas"].update_one(
+                {"role": role},
+                {"$set": {"limits": quota["limits"]}}
+            ) """
+            
     return quota
 
 async def resolve_domains_if_needed(request: CodeGenerationRequest, db_inst):

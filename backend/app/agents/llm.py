@@ -28,6 +28,8 @@ async def call_llm(prompt: str, model_name: str, response_format_json: bool = Tr
         model_name = model_name.strip()
         if "gpt-4o" in model_name:
             model_key = "gpt-4o"
+        elif "o3-mini" in model_name:
+            model_key = "o3-mini"
         elif "gemini-3.5" in model_name:
             model_key = "gemini-3.5-flash"
         elif "gemini-2.5" in model_name:
@@ -57,6 +59,20 @@ async def call_llm(prompt: str, model_name: str, response_format_json: bool = Tr
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.0,
             "max_tokens": 4096
+        }
+        if response_format_json:
+            kwargs["response_format"] = {"type": "json_object"}
+        response = await client.chat.completions.create(**kwargs)
+        content = response.choices[0].message.content
+        prompt_tokens = response.usage.prompt_tokens if response.usage else 0
+        completion_tokens = response.usage.completion_tokens if response.usage else 0
+        return content, prompt_tokens, completion_tokens
+        
+    elif model_key == "o3-mini":
+        client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        kwargs = {
+            "model": "o3-mini",
+            "messages": [{"role": "user", "content": prompt}]
         }
         if response_format_json:
             kwargs["response_format"] = {"type": "json_object"}

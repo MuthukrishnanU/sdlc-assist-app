@@ -48,7 +48,7 @@ async def generate_sparksql(request, schema_context: str) -> dict:
     4. {column_projection_instruction}
     5. Compute any derived, aggregated, or bucketed columns requested in the 'Logic' and project them in the SQL select statement.
     6. Deduplication Rule: To prevent row duplication when joining a detail table (like `transactionsInfo`) to customer-level tables, deduplicate the detail table before joining it by using a CTE (Common Table Expression) or subquery with `ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY timestamp DESC) as rn` and filtering for `rn = 1`. Always use `LEFT JOIN` so customers with no transactions are not dropped.
-    
+    7. Join Integrity Rule: You MUST ensure that every column requested in the 'Columns' list is actually present in the query's tables before projecting it. If any of the requested columns reside in other tables (such as `transactionsInfo`), you MUST left-join those tables (using common keys like `customer_id` or `account_id`) to make those columns available. Never select a column in the final SELECT statement that is not present in the joined schema.
     Return the response as a JSON object with exactly these keys:
     - "generated_code": (string) The full executable SparkSQL Python code block.
     - "flow_explanation": (string) A step-by-step description of the SQL query and transformations applied.

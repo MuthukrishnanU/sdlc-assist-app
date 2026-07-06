@@ -51,6 +51,7 @@ async def generate_pyspark(request, schema_context: str) -> dict:
     3. {column_projection_instruction}
     4. Compute any derived, aggregated, or bucketed columns requested in the 'Logic' and project them.
     5. Deduplication Rule: To prevent row duplication when joining a detail table (like `transactionsInfo`) to customer-level tables, deduplicate the dataset by using window functions or calling `.dropDuplicates(["customer_id"])` on the final DataFrame. Always use a left join to preserve customer records.    
+    6. Join Integrity Rule: You MUST ensure that every column requested in the 'Columns' list is actually present in the final DataFrame's schema before projecting it. If any of the requested columns reside in other tables (such as `transactionsInfo`), you MUST left-join those tables into the main DataFrame (using common keys like `customer_id` or `account_id`) to make those columns available. Never select a column in the final `.select()` statement that is not present in the joined schema.
     Return the response as a JSON object with exactly these keys:
     - "generated_code": (string) The full executable PySpark code block.
     - "flow_explanation": (string) A step-by-step description of the PySpark API transformations applied.

@@ -169,13 +169,16 @@ class CodeGenerator:
 
             requested_model = request.model or "gpt-4o"
             
-            if requested_model == "gpt-4o":
-                response = await self.client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"},
-                    temperature=0.0
-                )
+            if requested_model in ["gpt-4o", "o3-mini"]:
+                model_to_call = "o3-mini" if requested_model == "o3-mini" else "gpt-4o"
+                kwargs = {
+                    "model": model_to_call,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "response_format": {"type": "json_object"}
+                }
+                if model_to_call == "gpt-4o":
+                    kwargs["temperature"] = 0.0
+                response = await self.client.chat.completions.create(**kwargs)
                 data = parse_llm_json(response.choices[0].message.content)
                 prompt_tokens = response.usage.prompt_tokens if response.usage else 0
                 completion_tokens = response.usage.completion_tokens if response.usage else 0
@@ -368,13 +371,16 @@ class CodeGenerator:
             requested_model = model or "gpt-4o"
             python_code = ""
 
-            if requested_model == "gpt-4o":
-                response = await self.client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"},
-                    temperature=0.0
-                )
+            if requested_model in ["gpt-4o", "o3-mini"]:
+                model_to_call = "o3-mini" if requested_model == "o3-mini" else "gpt-4o"
+                kwargs = {
+                    "model": model_to_call,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "response_format": {"type": "json_object"}
+                }
+                if model_to_call == "gpt-4o":
+                    kwargs["temperature"] = 0.0
+                response = await self.client.chat.completions.create(**kwargs)
                 data = parse_llm_json(response.choices[0].message.content)
                 python_code = data.get("python_code", "")
                 

@@ -11,6 +11,7 @@ router = APIRouter(tags=["Code Generation"])
 
 PRICING = {
     "gpt-4o": {"input": 0.000005, "output": 0.000015},
+    "o3-mini": {"input": 0.0000011, "output": 0.0000044},
     "gemini-3.5-flash": {"input": 0.000000075, "output": 0.0000003},
     "mistral": {"input": 0.000002, "output": 0.000006},
     "llama": {"input": 0.0000007, "output": 0.0000007},
@@ -215,29 +216,11 @@ async def generate_code(request: CodeGenerationRequest):
                 # Return cached code, bypass LLM
                 cached_code = best_match["code"]
                 
-                # Execute native simulation runner on cached code to get dynamic DQ Insights
-                try:
-                    sim_res = await run_simulation_logic(
-                        tables=request.tables,
-                        columns=request.columns,
-                        generated_code=cached_code,
-                        format_str=request.format,
-                        sample_data_size=request.sample_data_size,
-                        logic=request.logic,
-                        role=request.role,
-                        userId=request.userId,
-                        mock_inputs=None
-                    )
-                    final_df = sim_res["final_dataframe"]
-                    col_details = sim_res["column_details"]
-                    dq = calculate_dataframe_dq(final_df, col_details)
-                except Exception as e:
-                    print(f"[ERROR] Simulation for cache hit failed: {e}")
-                    dq = {
-                        "row_count": 0, "null_values": 0, "duplicate_rows": 0,
-                        "minimum": None, "maximum": None, "average": None,
-                        "distinct_values": 0, "empty_strings": 0
-                    }
+                dq = {
+                    "row_count": 0, "null_values": 0, "duplicate_rows": 0,
+                    "minimum": None, "maximum": None, "average": None,
+                    "distinct_values": 0, "empty_strings": 0
+                }
                 
                 from ..schemas.code_gen import DQInsights
                 result = CodeGenerationResponse(

@@ -93,32 +93,14 @@ async def nosql_generator_node(state: AgentState) -> dict:
 
 # Node: Simulation execution for native DQ insights
 async def simulation_runner_node(state: AgentState) -> dict:
-    req = state["request"]
-    code = state["generated_code"]
-    try:
-        sim_res = await run_simulation_logic(
-            tables=req.tables,
-            columns=req.columns,
-            generated_code=code,
-            format_str=req.format,
-            sample_data_size=req.sample_data_size,
-            logic=req.logic or "",
-            role=req.role,
-            userId=req.userId
-        )
-        final_df = sim_res["final_dataframe"]
-        col_details = sim_res["column_details"]
-        dq = calculate_dataframe_dq(final_df, col_details)
-    except Exception as e:
-        print(f"[ERROR] Simulation in supervisor failed: {e}")
-        final_df = []
-        dq = {
-            "row_count": 0, "null_values": 0, "duplicate_rows": 0,
-            "minimum": None, "maximum": None, "average": None,
-            "distinct_values": 0, "empty_strings": 0
-        }
+    # We no longer execute simulation during code generation as it has been moved to the execution phase (Run Code)
+    dq = {
+        "row_count": 0, "null_values": 0, "duplicate_rows": 0,
+        "minimum": None, "maximum": None, "average": None,
+        "distinct_values": 0, "empty_strings": 0
+    }
     return {
-        "dataframe": final_df,
+        "dataframe": [],
         "dq_insights": dq
     }
 

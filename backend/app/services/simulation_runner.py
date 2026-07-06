@@ -2,7 +2,11 @@ import re
 import ast
 import sys
 import time
+import warnings
 import pandas as pd
+
+# Suppress harmless pandas UserWarning regarding SQLAlchemy/DBAPI2 connection
+warnings.filterwarnings("ignore", message=".*pandas only supports SQLAlchemy connectable.*")
 import duckdb
 from datetime import datetime
 from unittest.mock import MagicMock
@@ -171,43 +175,77 @@ async def run_simulation_logic(
 
     if is_spark_format and code_str:
         try:
-            from duckdb.experimental.spark.sql import SparkSession
-            from duckdb.experimental.spark.sql.dataframe import DataFrame as DuckSparkDataFrame
-            import duckdb.experimental.spark.sql.functions as spark_funcs
+            import sys
+            import types
+            from sqlframe.duckdb import DuckDBSession
+            import sqlframe.duckdb.functions as spark_funcs
             
-            spark = SparkSession.builder.getOrCreate()
+            # Map standard PySpark imports to sqlframe under the hood
+            pyspark_sql = types.ModuleType("pyspark.sql")
+            pyspark_sql.SparkSession = DuckDBSession
+            sys.modules['pyspark.sql'] = pyspark_sql
+            
+            pyspark_root = types.ModuleType("pyspark")
+            pyspark_root.sql = pyspark_sql
+            sys.modules['pyspark'] = pyspark_root
+            sys.modules['pyspark.sql.functions'] = spark_funcs
+            pyspark_sql.functions = spark_funcs
+            
+            try:
+                import sqlframe.base.types as sqlframe_types
+                sys.modules['pyspark.sql.types'] = sqlframe_types
+                pyspark_sql.types = sqlframe_types
+            except Exception:
+                pass
+                
+            try:
+                import sqlframe.duckdb.window as sqlframe_window
+                sys.modules['pyspark.sql.window'] = sqlframe_window
+                pyspark_sql.window = sqlframe_window
+            except Exception:
+                pass
+                
+            spark = DuckDBSession()
             try:
                 import os
                 os.makedirs("/tmp/duckdb_temp/", exist_ok=True)
-                spark.conn.execute("SET memory_limit = '256MB';")
-                spark.conn.execute("SET temp_directory = '/tmp/duckdb_temp/';")
-                spark.conn.execute("SET threads = 1;")
             except Exception:
                 pass
             
+            # Get Window class
+            try:
+                from sqlframe.duckdb.window import Window as spark_window
+            except Exception:
+                spark_window = None
+
             globals_dict = {
                 "spark": spark,
                 "pd": pd,
                 "datetime": datetime,
-                "col": spark_funcs.col,
-                "when": spark_funcs.when,
-                "lit": spark_funcs.lit,
-                "count": spark_funcs.count,
-                "sum": spark_funcs.sum,
-                "avg": spark_funcs.avg,
-                "mean": spark_funcs.mean,
-                "min": spark_funcs.min,
-                "max": spark_funcs.max,
-                "desc": spark_funcs.desc,
-                "asc": spark_funcs.asc
+                "Window": spark_window
             }
+            # Dynamically copy all sqlframe functions into global scope
+            for name in dir(spark_funcs):
+                if not name.startswith("_"):
+                    globals_dict[name] = getattr(spark_funcs, name)
             for t_name, df_temp in dfs.items():
-                spark.conn.register(t_name, df_temp)
-                spark_df = spark.table(t_name)
-                globals_dict[t_name] = spark_df
-                globals_dict[t_name.lower()] = spark_df
-                snake = re.sub(r'(?<!^)(?=[A-Z])', '_', t_name).lower()
-                globals_dict[snake] = spark_df
+                if not df_temp.empty:
+                    spark_df = spark.createDataFrame(df_temp)
+                    spark_df.createOrReplaceTempView(t_name)
+                    globals_dict[t_name] = spark_df
+                    globals_dict[t_name.lower()] = spark_df
+                    snake = re.sub(r'(?<!^)(?=[A-Z])', '_', t_name).lower()
+                    spark_df.createOrReplaceTempView(snake)
+                    globals_dict[snake] = spark_df
+                else:
+                    # Register empty schema if possible
+                    try:
+                        spark_df = spark.createDataFrame(df_temp)
+                        spark_df.createOrReplaceTempView(t_name)
+                        globals_dict[t_name] = spark_df
+                        globals_dict[t_name.lower()] = spark_df
+                    except Exception:
+                        pass
             
             is_spark_sql_format = "SQL" in fmt
             spark_sql_match = re.search(r'spark\.sql\(\s*f?["\']{3}(.*?)["\']{3}\s*\)', code_str, re.DOTALL | re.IGNORECASE)
@@ -244,6 +282,15 @@ async def run_simulation_logic(
                         sql_query = sql_query[1:-1].strip()
                     else:
                         break
+                
+                try:
+                    import sqlglot
+                    transpiled = sqlglot.transpile(sql_query, read="spark", write="duckdb")[0]
+                    if transpiled:
+                        sql_query = transpiled
+                except Exception as tg_err:
+                    print(f"[INFO] sqlglot transpile for SparkSQL failed: {tg_err}")
+                    
                 extracted_df = spark.sql(sql_query)
             else:
                 pyspark_exec_failed = False
@@ -251,7 +298,7 @@ async def run_simulation_logic(
                     locals_dict = {}
                     exec(code_str, globals_dict, locals_dict)
                     for var_name in ['result_df', 'df', 'final_df', 'output_df']:
-                        if var_name in locals_dict and isinstance(locals_dict[var_name], DuckSparkDataFrame):
+                        if var_name in locals_dict and hasattr(locals_dict[var_name], 'toPandas') and callable(getattr(locals_dict[var_name], 'toPandas')):
                             extracted_df = locals_dict[var_name]
                             break
                     
@@ -265,7 +312,7 @@ async def run_simulation_logic(
                             return False
  
                         for k, v in reversed(list(locals_dict.items())):
-                            if isinstance(v, DuckSparkDataFrame) and not is_source_table_var(k):
+                            if hasattr(v, 'toPandas') and callable(getattr(v, 'toPandas')) and not is_source_table_var(k):
                                   extracted_df = v
                                   break
 
@@ -288,7 +335,10 @@ async def run_simulation_logic(
                                     all_temps[f"{var_name}_temp"] = temp_df_pd.head(sample_data_size).to_dict(orient="records")
                                 except Exception:
                                     pass
-                except Exception:
+                except Exception as e:
+                    import traceback
+                    print("[ERROR] PySpark local execution failed with exception:")
+                    traceback.print_exc()
                     pyspark_exec_failed = True
                 
                 if pyspark_exec_failed or extracted_df is None:
@@ -299,6 +349,14 @@ async def run_simulation_logic(
                             sql_from_pyspark = await generator.translate_pyspark_to_sql(code_str, list(dfs.keys()))
                         
                         if sql_from_pyspark:
+                            try:
+                                import sqlglot
+                                transpiled = sqlglot.transpile(sql_from_pyspark, read="spark", write="duckdb")[0]
+                                if transpiled:
+                                    sql_from_pyspark = transpiled
+                            except Exception as tg_err:
+                                print(f"[INFO] sqlglot transpile for fallback SparkSQL failed: {tg_err}")
+                                
                             con_spark_fallback = get_duckdb_connection()
                             for t_name_fb, df_fb in dfs.items():
                                 if not df_fb.empty:
@@ -323,6 +381,33 @@ async def run_simulation_logic(
                 if not df.empty:
                     con.register(table_name, df)
             sql_query = sanitize_sql_for_duckdb(code_str)
+            
+            # Map formats to sqlglot read dialects
+            read_dialect = "sql"
+            dialect_map = {
+                "POSTGRESQL": "postgres",
+                "POSTGRE": "postgres",
+                "MYSQL": "mysql",
+                "MY": "mysql",
+                "ORACLE": "oracle",
+                "PL/SQL": "oracle",
+                "BIGQUERY": "bigquery",
+                "SNOWFLAKE": "snowflake",
+                "SQL": ""
+            }
+            for k, v in dialect_map.items():
+                if k in fmt:
+                    read_dialect = v
+                    break
+                    
+            try:
+                import sqlglot
+                transpiled = sqlglot.transpile(sql_query, read=read_dialect, write="duckdb")[0]
+                if transpiled:
+                    sql_query = transpiled
+            except Exception as tg_err:
+                print(f"[INFO] sqlglot transpile failed for dialect {read_dialect}: {tg_err}")
+                
             result_df = con.execute(sql_query).fetchdf()
             executed_successfully = True
         except Exception:
@@ -609,6 +694,16 @@ async def run_simulation_logic(
                                 if paren_count == 0 and in_cte_def:
                                     last_closed_idx = i
                                     in_cte_def = False
+                                    
+                                    # Peek ahead to check if there is a comma (meaning more CTE definitions follow)
+                                    next_idx = i + 1
+                                    while next_idx < len(clean_code) and clean_code[next_idx].isspace():
+                                        next_idx += 1
+                                    if next_idx < len(clean_code) and clean_code[next_idx] == ',':
+                                        pass
+                                    else:
+                                        # No comma, CTE definitions block has ended
+                                        break
                             i += 1
                         
                         if last_closed_idx != -1:
@@ -632,7 +727,29 @@ async def run_simulation_logic(
     for k, v in all_temps.items():
         all_tables_data[k] = v
 
-    return {
+    def sanitize_for_serialization(val):
+        import numpy as np
+        if isinstance(val, list):
+            return [sanitize_for_serialization(item) for item in val]
+        elif isinstance(val, dict):
+            return {k: sanitize_for_serialization(v) for k, v in val.items()}
+        elif isinstance(val, pd.Period):
+            return str(val)
+        elif isinstance(val, pd.Timestamp):
+            return val.strftime("%Y-%m-%d %H:%M:%S")
+        elif isinstance(val, (np.integer, np.int64, np.int32)):
+            return int(val)
+        elif isinstance(val, (np.floating, np.float64, np.float32)):
+            return float(val)
+        elif isinstance(val, np.ndarray):
+            return sanitize_for_serialization(val.tolist())
+        else:
+            t_name = type(val).__name__
+            if t_name == 'Period':
+                return str(val)
+            return val
+
+    res_payload = {
         "final_dataframe": final_dataframe,
         "column_details": column_details,
         "executed_successfully": executed_successfully,
@@ -642,3 +759,4 @@ async def run_simulation_logic(
         "meta_fields": meta_fields,
         "all_tables_data": all_tables_data
     }
+    return sanitize_for_serialization(res_payload)
