@@ -33,8 +33,9 @@ def calculate_col_dq(records: list, col: str) -> dict:
     distinct_values_count = non_null_series.nunique()
     duplicate_count = len(non_null_series) - distinct_values_count
     
-    # Numeric metrics
-    numeric_series = pd.to_numeric(non_null_series, errors='coerce')
+    # Convert booleans to float explicitly to avoid numpy subtraction errors in quantile calculations
+    float_series = non_null_series.apply(lambda x: float(x) if isinstance(x, bool) else x)
+    numeric_series = pd.to_numeric(float_series, errors='coerce')
     numeric_series = numeric_series.dropna()
     
     minimum = float(numeric_series.min()) if not numeric_series.empty else None
