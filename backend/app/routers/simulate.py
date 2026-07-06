@@ -135,6 +135,8 @@ async def simulate_data(request: SimulationRequest):
         column_dq_insights = {}
         all_tables_data = sim_res.get("all_tables_data", {})
         for table_name, table_records in all_tables_data.items():
+            if table_name != "Output Table" and table_name not in request.tables:
+                continue
             table_col_insights = {}
             if table_records:
                 cols = list(table_records[0].keys())

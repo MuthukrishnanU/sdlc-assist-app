@@ -3,29 +3,44 @@ import pandas as pd
 
 def calculate_col_dq(records: list, col: str) -> dict:
     import re
+    import numpy as np
     
-    row_count = len(records)
-    null_count = sum(1 for r in records if r.get(col) is None or r.get(col) == "")
-    empty_string_count = sum(1 for r in records if isinstance(r.get(col), str) and r.get(col).strip() == "")
+    if not records:
+        return {
+            "row_count": 0, "null_values": 0, "duplicate_rows": 0,
+            "minimum": None, "maximum": None, "average": None,
+            "distinct_values": 0, "empty_strings": 0,
+            "min": None, "max": None, "mean": None,
+            "sum": 0.0, "median": None, "stddev": 0.0,
+            "variance": 0.0, "zero_count": 0, "negative_value_count": 0,
+            "special_character_count": 0, "percentiles": "-",
+            "percentile_25": None, "percentile_50": None, "percentile_75": None
+        }
+        
+    series = pd.Series([r.get(col) for r in records])
+    row_count = len(series)
     
-    non_null_vals = [r.get(col) for r in records if r.get(col) is not None and r.get(col) != ""]
-    duplicate_count = len(non_null_vals) - len(set(non_null_vals))
-    distinct_values_count = len(set(non_null_vals))
+    # Null / Empty String checks
+    null_mask = series.isna() | (series.astype(str) == "")
+    null_count = int(null_mask.sum())
     
-    numeric_values = []
-    for val in non_null_vals:
-        try:
-            numeric_values.append(float(val))
-        except (ValueError, TypeError):
-            pass
-            
-    # Basic statistics
-    minimum = min(numeric_values) if numeric_values else None
-    maximum = max(numeric_values) if numeric_values else None
-    average = round(sum(numeric_values) / len(numeric_values), 2) if numeric_values else None
+    # Empty strings (spaces only)
+    is_str = series.apply(lambda x: isinstance(x, str))
+    empty_string_count = int((is_str & (series.astype(str).str.strip() == "") & ~null_mask).sum())
     
-    # Newly requested metrics
-    sum_val = round(sum(numeric_values), 2) if numeric_values else 0.0
+    # Non-null values
+    non_null_series = series[~null_mask]
+    distinct_values_count = non_null_series.nunique()
+    duplicate_count = len(non_null_series) - distinct_values_count
+    
+    # Numeric metrics
+    numeric_series = pd.to_numeric(non_null_series, errors='coerce')
+    numeric_series = numeric_series.dropna()
+    
+    minimum = float(numeric_series.min()) if not numeric_series.empty else None
+    maximum = float(numeric_series.max()) if not numeric_series.empty else None
+    average = round(float(numeric_series.mean()), 2) if not numeric_series.empty else None
+    sum_val = round(float(numeric_series.sum()), 2) if not numeric_series.empty else 0.0
     
     median_val = None
     stddev_val = None
@@ -35,24 +50,24 @@ def calculate_col_dq(records: list, col: str) -> dict:
     p75 = None
     percentiles_str = "-"
     
-    if numeric_values:
-        series = pd.Series(numeric_values)
-        median_val = round(float(series.median()), 2)
-        stddev_val = round(float(series.std()), 2) if len(numeric_values) > 1 else 0.0
-        variance_val = round(float(series.var()), 2) if len(numeric_values) > 1 else 0.0
-        p25 = round(float(series.quantile(0.25)), 2)
-        p50 = round(float(series.quantile(0.50)), 2)
-        p75 = round(float(series.quantile(0.75)), 2)
+    if not numeric_series.empty:
+        median_val = round(float(numeric_series.median()), 2)
+        stddev_val = round(float(numeric_series.std()), 2) if len(numeric_series) > 1 else 0.0
+        variance_val = round(float(numeric_series.var()), 2) if len(numeric_series) > 1 else 0.0
+        p25 = round(float(numeric_series.quantile(0.25)), 2)
+        p50 = round(float(numeric_series.quantile(0.50)), 2)
+        p75 = round(float(numeric_series.quantile(0.75)), 2)
         percentiles_str = f"25%: {p25}, 50%: {p50}, 75%: {p75}"
         
-    zero_count = sum(1 for x in numeric_values if x == 0.0)
-    # Also check string zero if not parsed
-    zero_count += sum(1 for x in non_null_vals if str(x).strip() in ("0", "0.0") and x not in numeric_values)
+    zero_count = int((numeric_series == 0.0).sum())
+    # Check string zero if not parsed
+    zero_count += int((non_null_series.astype(str).str.strip().isin(["0", "0.0"]) & ~non_null_series.index.isin(numeric_series.index)).sum())
     
-    negative_count = sum(1 for x in numeric_values if x < 0.0)
+    negative_count = int((numeric_series < 0.0).sum())
     
-    # Find any character other than alphanumeric, spaces, commas, periods, question marks, exclamation marks, or hyphens
-    special_char_count = sum(1 for val in non_null_vals if re.search(r'[^a-zA-Z0-9\s.,?!-]', str(val)))
+    # Special characters
+    non_null_str = non_null_series.astype(str)
+    special_char_count = int(non_null_str.str.contains(r'[^a-zA-Z0-9\s.,?!-]', regex=True).sum())
 
     return {
         # Defaults
