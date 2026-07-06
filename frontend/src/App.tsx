@@ -10,7 +10,7 @@ import AddNewPiiDataPage from './pages/AddNewPiiData';
 
 const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? 'http://localhost:8000'
-  : 'https://sdlc-assist-app-be.onrender.com';
+  : 'https://muthuhf3-sdlcassistbe.hf.space';
 
 function App() {
   const [user, setUser] = React.useState<{ userId: string; role: string; canView: string; domain: string[] } | null>(null);
