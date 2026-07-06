@@ -147,17 +147,20 @@ async def run_simulation_logic(
             records_processed += len(records)
             dfs[table] = pd.DataFrame(records) if records else pd.DataFrame()
     else:
-        for table in tables:
-            cursor = db[table].find().limit(3000)
-            records = []
+        import asyncio
+        limit_val = sample_data_size if (sample_data_size and sample_data_size > 0) else 1000
+        
+        def fetch_table_records(t_name):
+            cursor = db[t_name].find().limit(limit_val)
+            tbl_records = []
             for doc in cursor:
-                records_processed += 1
-                doc_cleaned = {}
-                for k, v in doc.items():
-                    if k == '_id':
-                        continue
-                    doc_cleaned[k] = v
-                records.append(doc_cleaned)
+                doc_cleaned = {k: v for k, v in doc.items() if k != '_id'}
+                tbl_records.append(doc_cleaned)
+            return tbl_records
+            
+        for table in tables:
+            records = await asyncio.to_thread(fetch_table_records, table)
+            records_processed += len(records)
             data_by_table[table] = records
 
         for table_name, records in data_by_table.items():
