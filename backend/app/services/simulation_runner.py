@@ -87,6 +87,8 @@ try:
     pyspark_sql_window = type(sys)('pyspark.sql.window')
     pyspark_sql_window.Window = Window
     sys.modules['pyspark.sql.window'] = pyspark_sql_window
+    duck_spark_sql.Window = Window
+    duck_spark_sql.window = pyspark_sql_window
     duck_spark_dataframe.DataFrame.show = lambda self, *args, **kwargs: None
 except Exception:
     pass
@@ -95,14 +97,8 @@ except Exception:
 def get_duckdb_connection() -> duckdb.DuckDBPyConnection:
     config = {
         "memory_limit": "256MB",
-        "temp_directory": "/tmp/duckdb_temp/",
         "threads": "1"
     }
-    try:
-        import os
-        os.makedirs(config["temp_directory"], exist_ok=True)
-    except Exception:
-        pass
     return duckdb.connect(config=config)
 
 
@@ -202,6 +198,7 @@ async def run_simulation_logic(
                 import sqlframe.duckdb.window as sqlframe_window
                 sys.modules['pyspark.sql.window'] = sqlframe_window
                 pyspark_sql.window = sqlframe_window
+                pyspark_sql.Window = sqlframe_window.Window
             except Exception:
                 pass
                 

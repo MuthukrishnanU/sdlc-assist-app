@@ -88,6 +88,8 @@ try:
     pyspark_sql_window = type(sys)('pyspark.sql.window')
     pyspark_sql_window.Window = Window
     sys.modules['pyspark.sql.window'] = pyspark_sql_window
+    duck_spark_sql.Window = Window
+    duck_spark_sql.window = pyspark_sql_window
     duck_spark_dataframe.DataFrame.show = lambda self, *args, **kwargs: None
 except Exception:
     pass
