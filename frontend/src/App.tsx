@@ -10,7 +10,8 @@ import AddNewPiiDataPage from './pages/AddNewPiiData';
 
 const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? 'http://localhost:8000'
-  : 'https://muthuhf3-sdlcassistbe.hf.space';
+  : 'https://sdlc-assist-app-be.onrender.com';
+//: 'https://muthuhf3-sdlcassistbe.hf.space';
 
 function App() {
   const [user, setUser] = React.useState<{ userId: string; role: string; canView: string; domain: string[] } | null>(null);
@@ -92,7 +93,7 @@ function App() {
         prompt_tokens: response.data.prompt_tokens || 0,
         completion_tokens: response.data.completion_tokens || 0
       });
-      
+
       // Update form data with detected tables and columns if returned by the API
       setLastFormData((prev: any) => ({
         ...prev,
@@ -108,7 +109,7 @@ function App() {
         } else if (Array.isArray(error.response.data.detail)) {
           errMsg = error.response.data.detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ');
         } else {
-          errMsg = typeof error.response.data.detail === 'object' 
+          errMsg = typeof error.response.data.detail === 'object'
             ? (error.response.data.detail.message || JSON.stringify(error.response.data.detail))
             : String(error.response.data.detail);
         }
