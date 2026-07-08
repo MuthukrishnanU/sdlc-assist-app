@@ -176,7 +176,7 @@ async def run_simulation_logic(
         limit_val = sample_data_size if (sample_data_size and sample_data_size > 0) else 1000
         
         def fetch_table_records(t_name):
-            cursor = db[t_name].find()
+            cursor = db[t_name].find().limit(3000)
             tbl_records = []
             for doc in cursor:
                 doc_cleaned = {k: v for k, v in doc.items() if k != '_id'}
