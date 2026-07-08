@@ -449,8 +449,8 @@ def _pyspark_code_to_sql(code_str: str, table_names: list) -> str:
         raw_groupby = extract_method_args("groupBy")
         raw_agg = extract_method_args("agg")
         if raw_groupby is not None and raw_agg is not None:
-            group_cols = re.sub(r'(?:F\.)?col\(\s*["\']?(\w+)["\']?\s*\)', r'"\1"', raw_groupby)
-            group_cols = re.sub(r'["\'](\w+)["\']', r'"\1"', group_cols)
+            group_cols = re.sub(r'(?:F\.)?col\(\s*["\']?(\w+)["\']?\s*\)', r'\1', raw_groupby)
+            group_cols = re.sub(r'["\'](\w+)["\']', r'\1', group_cols)
             group_clause = f" GROUP BY {group_cols}"
             
             agg_parts = []
@@ -467,11 +467,12 @@ def _pyspark_code_to_sql(code_str: str, table_names: list) -> str:
         for method in ['orderBy', 'sort']:
             raw_order = extract_method_args(method)
             if raw_order is not None:
-                order_cols = re.sub(r'(?:F\.)?col\(\s*["\']?(\w+)["\']?\s*\)', r'"\1"', raw_order)
-                order_cols = re.sub(r'(?:F\.)?desc\(\s*["\']?(\w+)["\']?\s*\)', r'"\1" DESC', order_cols)
-                order_cols = re.sub(r'(?:F\.)?asc\(\s*["\']?(\w+)["\']?\s*\)', r'"\1" ASC', order_cols)
-                order_cols = re.sub(r'["\']?(\w+)["\']?\.desc\(\)', r'"\1" DESC', order_cols)
-                order_cols = re.sub(r'["\']?(\w+)["\']?\.asc\(\)', r'"\1" ASC', order_cols)
+                order_cols = re.sub(r'(?:F\.)?col\(\s*["\']?(\w+)["\']?\s*\)', r'\1', raw_order)
+                order_cols = re.sub(r'(?:F\.)?desc\(\s*["\']?(\w+)["\']?\s*\)', r'\1 DESC', order_cols)
+                order_cols = re.sub(r'(?:F\.)?asc\(\s*["\']?(\w+)["\']?\s*\)', r'\1 ASC', order_cols)
+                order_cols = re.sub(r'["\']?(\w+)["\']?\.desc\(\)', r'\1 DESC', order_cols)
+                order_cols = re.sub(r'["\']?(\w+)["\']?\.asc\(\)', r'\1 ASC', order_cols)
+                order_cols = re.sub(r'["\'](\w+)["\']', r'\1', order_cols)
                 order_clause = f" ORDER BY {order_cols}"
                 break
         

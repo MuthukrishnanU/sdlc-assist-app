@@ -85,11 +85,44 @@ try:
     duck_spark_functions.lead = lambda col, offset=1, default=None: WindowFunction(f"lead({col.expr.get_name() if hasattr(col, 'expr') else str(col)}, {offset})")
     duck_spark_functions.lag = lambda col, offset=1, default=None: WindowFunction(f"lag({col.expr.get_name() if hasattr(col, 'expr') else str(col)}, {offset})")
     
+    def date_format(col, format_str):
+        col_expr = col.expr if hasattr(col, 'expr') else str(col)
+        fmt = str(format_str)
+        fmt = fmt.replace('yyyy', '%Y').replace('YYYY', '%Y')
+        fmt = fmt.replace('MM', '%m').replace('mm', '%m')
+        fmt = fmt.replace('dd', '%d').replace('DD', '%d')
+        return duck_spark_functions.expr(f"strftime({col_expr}, '{fmt}')")
+
+    def countDistinct(*cols):
+        col_exprs = []
+        for c in cols:
+            col_exprs.append(c.expr if hasattr(c, 'expr') else str(c))
+        return duck_spark_functions.expr(f"count(distinct {', '.join(col_exprs)})")
+
+    duck_spark_functions.date_format = date_format
+    duck_spark_functions.countDistinct = countDistinct
+    duck_spark_functions.count_distinct = countDistinct
+    
     pyspark_sql_window = type(sys)('pyspark.sql.window')
     pyspark_sql_window.Window = Window
     sys.modules['pyspark.sql.window'] = pyspark_sql_window
     duck_spark_sql.Window = Window
     duck_spark_sql.window = pyspark_sql_window
+    def patched_fillna(self, value, subset=None):
+        from duckdb.experimental.spark.sql import SparkSession
+        spark = SparkSession.builder.getOrCreate()
+        pdf = self.toPandas()
+        pdf_filled = pdf.fillna(value)
+        return spark.createDataFrame(pdf_filled)
+    
+    class DataFrameNaFunctions:
+        def __init__(self, df):
+            self.df = df
+        def fill(self, value, subset=None):
+            return self.df.fillna(value, subset=subset)
+            
+    duck_spark_dataframe.DataFrame.fillna = patched_fillna
+    duck_spark_dataframe.DataFrame.na = property(lambda self: DataFrameNaFunctions(self))
     duck_spark_dataframe.DataFrame.show = lambda self, *args, **kwargs: None
 except Exception:
     pass
