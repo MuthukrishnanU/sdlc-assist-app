@@ -56,7 +56,6 @@ const MainSection: React.FC<MainSectionProps> = ({
   const [smartFilterQuery, setSmartFilterQuery] = React.useState('');
   const [sortColumn, setSortColumn] = React.useState<string | null>(null);
   const [sortDirection, setSortDirection] = React.useState<'asc' | 'desc' | null>(null);
-  const [selectedColumn, setSelectedColumn] = React.useState('');
   const [editableCode, setEditableCode] = React.useState<string>('');
   const [isEditModalOpen, setIsEditModalOpen] = React.useState(false);
   const [modalCodeValue, setModalCodeValue] = React.useState('');
@@ -230,7 +229,6 @@ const MainSection: React.FC<MainSectionProps> = ({
     setSmartFilterQuery('');
     setSortColumn(null);
     setSortDirection(null);
-    setSelectedColumn('');
     setCurrentPage(1);
     setAllTablesData({});
     setOriginalColumnDetailsMap({});
@@ -430,18 +428,7 @@ const MainSection: React.FC<MainSectionProps> = ({
     }
   };
 
-  React.useEffect(() => {
-    if (columnDetailsMap && Object.keys(columnDetailsMap).length > 0) {
-      const firstSelectedCol = formData?.columns?.find((col: string) => col in columnDetailsMap);
-      if (firstSelectedCol) {
-        setSelectedColumn(firstSelectedCol);
-      } else {
-        setSelectedColumn(Object.keys(columnDetailsMap)[0]);
-      }
-    } else {
-      setSelectedColumn('');
-    }
-  }, [columnDetailsMap, formData]);
+
 
   // Reset outputs on code/insights change
   React.useEffect(() => {
@@ -457,7 +444,6 @@ const MainSection: React.FC<MainSectionProps> = ({
     setSmartFilterQuery('');
     setSortColumn(null);
     setSortDirection(null);
-    setSelectedColumn('');
     setIsPushing(false);
     setCurrentPage(1);
     setAllTablesData({});
@@ -598,13 +584,15 @@ const MainSection: React.FC<MainSectionProps> = ({
   };
 
   const handleGenerateLineage = () => {
-    setShowLineage(true);
-    setTimeout(() => {
-      const el = document.getElementById("lineage-svg");
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    }, 100);
+    setShowLineage(prev => !prev);
+    if (!showLineage) {
+      setTimeout(() => {
+        const el = document.getElementById("lineage-svg");
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 100);
+    }
   };
 
   const lineageNodes = React.useMemo(() => {
@@ -656,13 +644,6 @@ const MainSection: React.FC<MainSectionProps> = ({
     const cols = data.length > 0 ? Object.keys(data[0]) : [];
     const newDetails = getColumnDetailsForTable(selectedPreviewTable, cols);
     setColumnDetailsMap(newDetails);
-
-    if (cols.length > 0) {
-      const pk = cols.find(c => c.toLowerCase().includes('id') || c.toLowerCase().includes('key')) || cols[0];
-      setSelectedColumn(pk);
-    } else {
-      setSelectedColumn('');
-    }
   }, [selectedPreviewTable, allTablesData, originalColumnDetailsMap]);
 
   const filteredRecords = React.useMemo(() => {
@@ -771,9 +752,7 @@ const MainSection: React.FC<MainSectionProps> = ({
       if (response.data.table_dq_insights) {
         setTableInsightsMap(response.data.table_dq_insights);
       }
-      if (formData.columns && formData.columns.length > 0) {
-        setSelectedColumn(formData.columns[0]);
-      }
+
 
       // Store Output Guardrails, Insights, and Personas
       const ogList = response.data.output_guardrails || [];
@@ -2502,7 +2481,7 @@ const MainSection: React.FC<MainSectionProps> = ({
                       : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200'}`}
                   >
                     <GitBranch className="w-4 h-4" />
-                    Generate Lineage
+                    {showLineage ? "Hide Lineage" : "Show Lineage"}
                   </button>
                 )}
                 <button
@@ -2634,110 +2613,10 @@ const MainSection: React.FC<MainSectionProps> = ({
                       })()}
                     </div>
 
-                    {sortColumn && (
-                      <button
-                        onClick={() => {
-                          setSortColumn(null);
-                          setSortDirection(null);
-                        }}
-                        className={`px-4 py-2 text-sm rounded-xl font-semibold transition-all border shrink-0 ${isDark
-                          ? 'bg-axis-red/20 border-axis-red/30 text-white hover:bg-axis-red/30'
-                          : 'bg-red-50 border-red-200 text-axis-burgundy hover:bg-red-100'}`}
-                      >
-                        Reset Sort ({sortColumn})
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <span className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-white/50' : 'text-gray-555'}`}>
-                      Inspect Column:
-                    </span>
-                    <select
-                      value={selectedColumn}
-                      onChange={(e) => setSelectedColumn(e.target.value)}
-                      className={`px-3 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 cursor-pointer transition-all ${isDark
-                        ? 'bg-white/10 border border-white/10 text-white focus:ring-axis-red/30'
-                        : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'}`}
-                    >
-                      {Object.keys(columnDetailsMap).map((col) => (
-                        <option key={col} value={col} className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>
-                          {col}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="flex flex-col md:flex-row gap-4 items-stretch">
-                  {selectedColumn && columnDetailsMap[selectedColumn] && (
-                    <div className={`flex-1 p-4 rounded-xl border transition-colors duration-400 ${isDark
-                      ? 'bg-axis-burgundy-dark/30 border-white/5 text-white'
-                      : 'bg-white border-gray-100 text-gray-700'}`}>
-                      <div className="flex items-start gap-3">
-                        <div className={`p-2 rounded-lg mt-0.5 ${isDark ? 'bg-axis-red/10' : 'bg-axis-burgundy/5'}`}>
-                          <Info className={`w-4 h-4 ${isDark ? 'text-axis-cream' : 'text-axis-burgundy'}`} />
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-sm">
-                            {columnDetailsMap[selectedColumn].friendly_name} <span className="font-mono text-xs opacity-50">({selectedColumn})</span>
-                          </h4>
-                          <p className={`text-xs mt-1 leading-relaxed ${isDark ? 'text-white/70' : 'text-gray-500'}`}>
-                            {columnDetailsMap[selectedColumn].description}
-                          </p>
-                          <div className="flex flex-wrap gap-2 mt-3">
-                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${isDark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-600'}`}>
-                              Type: {columnDetailsMap[selectedColumn].data_type}
-                            </span>
-                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${isDark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-600'}`}>
-                              Role: {columnDetailsMap[selectedColumn].role}
-                            </span>
-                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${columnDetailsMap[selectedColumn].classification.toUpperCase() === 'PII' || columnDetailsMap[selectedColumn].classification.toUpperCase() === 'PRIVATE'
-                              ? (isDark ? 'bg-red-500/20 text-red-300' : 'bg-red-50 text-red-600')
-                              : (isDark ? 'bg-white/10 text-white' : 'bg-gray-100 text-gray-600')}`}>
-                              Classification: {columnDetailsMap[selectedColumn].classification}
-                            </span>
-                          </div>
-
-                          {columnDetailsMap[selectedColumn].lineage && (
-                            <div className="mt-4 pt-4 border-t border-dashed border-gray-200/50 dark:border-white/10 space-y-2">
-                              <div className={`text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-white/40' : 'text-gray-400'}`}>
-                                Data Lineage
-                              </div>
-                              <div className="flex items-center gap-2 flex-wrap text-xs font-semibold">
-                                <span className={`px-2 py-0.5 rounded font-mono ${isDark ? 'bg-white/5 text-axis-cream' : 'bg-gray-100 text-axis-burgundy'}`}>
-                                  {columnDetailsMap[selectedColumn].lineage.source_tables.join(', ')}
-                                </span>
-                                <span className="opacity-50">→</span>
-                                <span className={`px-2 py-0.5 rounded font-mono ${isDark ? 'bg-white/5 text-axis-cream' : 'bg-gray-100 text-axis-burgundy'}`}>
-                                  {columnDetailsMap[selectedColumn].lineage.source_columns.join(', ')}
-                                </span>
-                              </div>
-                              <p className={`text-xs italic leading-relaxed ${isDark ? 'text-white/60' : 'text-gray-500'}`}>
-                                {columnDetailsMap[selectedColumn].lineage.transformation}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className={`w-full md:w-64 p-4 rounded-xl border flex flex-col justify-between transition-colors duration-400 ${isDark
-                    ? 'bg-axis-burgundy-dark/30 border-white/5 text-white'
-                    : 'bg-white border-gray-100 text-gray-700'}`}>
-                    <div>
-                      <h4 className="font-bold text-sm flex items-center gap-1.5">
-                        <Download className={`w-4 h-4 ${isDark ? 'text-axis-cream' : 'text-axis-red'}`} /> Export Data
-                      </h4>
-                      <p className={`text-xs mt-1 leading-relaxed ${isDark ? 'text-white/60' : 'text-gray-400'}`}>
-                        Download the simulated preview table contents locally.
-                      </p>
-                    </div>
-                    <div className="mt-4 flex flex-col gap-1.5">
-                      <label className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-white/50' : 'text-gray-550'}`}>
-                        Export As
-                      </label>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-semibold whitespace-nowrap ${isDark ? 'text-white/50' : 'text-gray-555'}`}>
+                        Export As:
+                      </span>
                       <select
                         onChange={(e) => {
                           const format = e.target.value;
@@ -2751,10 +2630,24 @@ const MainSection: React.FC<MainSectionProps> = ({
                           : 'bg-white border border-gray-200 text-gray-700 focus:ring-axis-burgundy/20'}`}
                       >
                         <option value="" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>Select format...</option>
-                        <option value="CSV" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>CSV Format</option>
-                        <option value="XLS" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>Excel (XLS) Format</option>
+                        <option value="CSV" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>CSV</option>
+                        <option value="XLS" className={isDark ? 'bg-axis-burgundy-dark text-white' : 'bg-white text-gray-700'}>Excel (XLS)</option>
                       </select>
                     </div>
+
+                    {sortColumn && (
+                      <button
+                        onClick={() => {
+                          setSortColumn(null);
+                          setSortDirection(null);
+                        }}
+                        className={`px-4 py-2 text-sm rounded-xl font-semibold transition-all border shrink-0 ${isDark
+                          ? 'bg-axis-red/20 border-axis-red/30 text-white hover:bg-axis-red/30'
+                          : 'bg-red-50 border-red-200 text-axis-burgundy hover:bg-red-100'}`}
+                      >
+                        Reset Sort ({sortColumn})
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -3005,7 +2898,7 @@ const MainSection: React.FC<MainSectionProps> = ({
                       : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200'}`}
                   >
                     <GitBranch className="w-4 h-4" />
-                    Generate Lineage
+                    {showLineage ? "Hide Lineage" : "Show Lineage"}
                   </button>
                 )}
                 <button
