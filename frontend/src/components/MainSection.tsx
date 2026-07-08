@@ -2218,6 +2218,19 @@ const MainSection: React.FC<MainSectionProps> = ({
                   <div className="flex justify-between items-center pb-2 mb-2 border-b border-white/10">
                     <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Metrics Checklist</span>
                     <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedDqParams.length === dqConfigParams.length && dqConfigParams.length > 0}
+                        onChange={() => {
+                          if (selectedDqParams.length === dqConfigParams.length) {
+                            setSelectedDqParams([]);
+                          } else {
+                            setSelectedDqParams(dqConfigParams.map(p => p.key));
+                          }
+                        }}
+                        className="rounded text-axis-red focus:ring-axis-red cursor-pointer w-3.5 h-3.5"
+                        title={selectedDqParams.length === dqConfigParams.length ? "Deselect all" : "Select all"}
+                      />
                       <button
                         type="button"
                         onClick={fetchDqConfigParams}

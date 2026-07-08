@@ -173,10 +173,10 @@ async def run_simulation_logic(
             dfs[table] = pd.DataFrame(records) if records else pd.DataFrame()
     else:
         import asyncio
-        limit_val = sample_data_size if (sample_data_size and sample_data_size > 0) else 1000
+        limit_val = sample_data_size if (sample_data_size and sample_data_size > 0) else 3000
         
         def fetch_table_records(t_name):
-            cursor = db[t_name].find().limit(3000)
+            cursor = db[t_name].find().limit(limit_val)
             tbl_records = []
             for doc in cursor:
                 doc_cleaned = {k: v for k, v in doc.items() if k != '_id'}
@@ -273,52 +273,28 @@ async def run_simulation_logic(
             except Exception as fast_err:
                 print(f"[INFO] PySpark fast path DuckDB execution failed: {fast_err}")
         
-        # === SLOW PATH: Fall back to sqlframe exec() only if fast path failed ===
+        # === SLOW PATH: Fall back to native DuckDB Spark execution only if fast path failed ===
         if not fast_path_succeeded:
             try:
                 import sys
                 import types
-                from sqlframe.duckdb import DuckDBSession
-                import sqlframe.duckdb.functions as spark_funcs
+                import duckdb.experimental.spark.sql as duck_spark_sql
+                import duckdb.experimental.spark.sql.functions as spark_funcs
+                import duckdb.experimental.spark.sql.types as spark_types
+                import duckdb.experimental.spark.sql.dataframe as spark_dataframe
                 
-                # Map standard PySpark imports to sqlframe under the hood
-                pyspark_sql = types.ModuleType("pyspark.sql")
-                pyspark_sql.SparkSession = DuckDBSession
-                sys.modules['pyspark.sql'] = pyspark_sql
-                
-                pyspark_root = types.ModuleType("pyspark")
-                pyspark_root.sql = pyspark_sql
-                sys.modules['pyspark'] = pyspark_root
+                # Restore original pyspark modules to sys.modules using the native duckdb wrapper
+                sys.modules['pyspark'] = sys.modules.get('pyspark') or type(sys)('pyspark')
+                sys.modules['pyspark.sql'] = duck_spark_sql
                 sys.modules['pyspark.sql.functions'] = spark_funcs
-                pyspark_sql.functions = spark_funcs
+                sys.modules['pyspark.sql.types'] = spark_types
+                sys.modules['pyspark.sql.dataframe'] = spark_dataframe
                 
-                try:
-                    import sqlframe.base.types as sqlframe_types
-                    sys.modules['pyspark.sql.types'] = sqlframe_types
-                    pyspark_sql.types = sqlframe_types
-                except Exception:
-                    pass
-                    
-                try:
-                    import sqlframe.duckdb.window as sqlframe_window
-                    sys.modules['pyspark.sql.window'] = sqlframe_window
-                    pyspark_sql.window = sqlframe_window
-                    pyspark_sql.Window = sqlframe_window.Window
-                except Exception:
-                    pass
-                    
-                spark = get_cached_spark_session()
-                try:
-                    import os
-                    os.makedirs("/tmp/duckdb_temp/", exist_ok=True)
-                except Exception:
-                    pass
+                spark = duck_spark_sql.SparkSession.builder.getOrCreate()
                 
-                # Get Window class
-                try:
-                    from sqlframe.duckdb.window import Window as spark_window
-                except Exception:
-                    spark_window = None
+                spark_window = None
+                if 'pyspark.sql.window' in sys.modules:
+                    spark_window = getattr(sys.modules['pyspark.sql.window'], 'Window', None)
 
                 globals_dict = {
                     "spark": spark,
@@ -326,28 +302,19 @@ async def run_simulation_logic(
                     "datetime": datetime,
                     "Window": spark_window
                 }
-                # Dynamically copy all sqlframe functions into global scope
+                # Dynamically copy all functions into global scope
                 for name in dir(spark_funcs):
                     if not name.startswith("_"):
                         globals_dict[name] = getattr(spark_funcs, name)
                 for t_name, df_temp in dfs.items():
                     if not df_temp.empty:
-                        records_len = len(df_temp)
-                        cached_len, cached_spark_df = _cached_dfs.get(t_name, (None, None))
-                        
-                        if cached_spark_df is not None and cached_len == records_len:
-                            spark_df = cached_spark_df
-                        else:
-                            spark_df = spark.createDataFrame(df_temp)
-                            spark_df.createOrReplaceTempView(t_name)
-                            snake = re.sub(r'(?<!^)(?=[A-Z])', '_', t_name).lower()
-                            spark_df.createOrReplaceTempView(snake)
-                            _cached_dfs[t_name] = (records_len, spark_df)
-                            
+                        spark_df = spark.createDataFrame(df_temp)
+                        spark_df.createOrReplaceTempView(t_name)
                         globals_dict[t_name] = spark_df
                         globals_dict[t_name.lower()] = spark_df
                         snake = re.sub(r'(?<!^)(?=[A-Z])', '_', t_name).lower()
                         globals_dict[snake] = spark_df
+                        spark_df.createOrReplaceTempView(snake)
                     else:
                         # Register empty schema if possible
                         try:

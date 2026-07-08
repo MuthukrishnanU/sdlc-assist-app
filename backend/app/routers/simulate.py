@@ -150,9 +150,10 @@ async def simulate_data(request: SimulationRequest):
                 continue
             table_col_insights = {}
             if table_records:
-                cols = list(table_records[0].keys())
+                table_df = pd.DataFrame(table_records)
+                cols = list(table_df.columns)
                 for col in cols:
-                    table_col_insights[col] = calculate_col_dq(table_records, col)
+                    table_col_insights[col] = calculate_col_dq(table_df, col)
             column_dq_insights[table_name] = table_col_insights
 
         t4 = time.time()

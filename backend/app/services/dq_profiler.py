@@ -5,7 +5,26 @@ def calculate_col_dq(records: list, col: str) -> dict:
     import re
     import numpy as np
     
-    if not records:
+    if isinstance(records, pd.DataFrame):
+        if records.empty:
+            return_empty = True
+        else:
+            return_empty = False
+            series = records[col] if col in records.columns else pd.Series(dtype=object)
+    elif isinstance(records, pd.Series):
+        if records.empty:
+            return_empty = True
+        else:
+            return_empty = False
+            series = records
+    else:
+        if not records:
+            return_empty = True
+        else:
+            return_empty = False
+            series = pd.Series([r.get(col) for r in records])
+            
+    if return_empty:
         return {
             "row_count": 0, "null_values": 0, "duplicate_rows": 0,
             "minimum": None, "maximum": None, "average": None,
@@ -17,7 +36,6 @@ def calculate_col_dq(records: list, col: str) -> dict:
             "percentile_25": None, "percentile_50": None, "percentile_75": None
         }
         
-    series = pd.Series([r.get(col) for r in records])
     row_count = len(series)
     
     # Null / Empty String checks
