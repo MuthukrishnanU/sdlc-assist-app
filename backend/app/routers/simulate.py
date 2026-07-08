@@ -104,6 +104,8 @@ async def simulate_data(request: SimulationRequest):
         db = get_db()
         code_str = (request.generated_code or "").strip()
         
+        t0 = time.time()
+        
         sim_res = await run_simulation_logic(
             tables=request.tables,
             columns=request.columns,
@@ -115,6 +117,9 @@ async def simulate_data(request: SimulationRequest):
             userId=request.userId
         )
         
+        t1 = time.time()
+        print(f"[TIMING] run_simulation_logic: {t1 - t0:.2f}s")
+        
         final_dataframe = sim_res["final_dataframe"]
         column_details = sim_res["column_details"]
         executed_successfully = sim_res["executed_successfully"]
@@ -124,6 +129,9 @@ async def simulate_data(request: SimulationRequest):
         meta_fields = sim_res["meta_fields"]
 
         dq_insights = calculate_dataframe_dq(final_dataframe, column_details)
+        
+        t2 = time.time()
+        print(f"[TIMING] calculate_dataframe_dq: {t2 - t1:.2f}s")
 
         table_dq_insights = {}
         for table in request.tables:
@@ -131,6 +139,9 @@ async def simulate_data(request: SimulationRequest):
             meta_doc = db['semanticMetaStore'].find_one({"collection_name": table})
             meta_fields_list = meta_doc.get("fields", []) if meta_doc else []
             table_dq_insights[table] = calculate_table_level_dq(table_records, meta_fields_list)
+
+        t3 = time.time()
+        print(f"[TIMING] table_dq_insights ({len(request.tables)} tables): {t3 - t2:.2f}s")
 
         column_dq_insights = {}
         all_tables_data = sim_res.get("all_tables_data", {})
@@ -143,6 +154,10 @@ async def simulate_data(request: SimulationRequest):
                 for col in cols:
                     table_col_insights[col] = calculate_col_dq(table_records, col)
             column_dq_insights[table_name] = table_col_insights
+
+        t4 = time.time()
+        total_cols = sum(len(v) for v in column_dq_insights.values())
+        print(f"[TIMING] column_dq_insights ({total_cols} columns): {t4 - t3:.2f}s")
 
         primary_keys = {}
         for table in request.tables:
@@ -158,12 +173,18 @@ async def simulate_data(request: SimulationRequest):
             if key not in primary_keys:
                 primary_keys[key] = "customer_id"
 
+        t5 = time.time()
+        print(f"[TIMING] primary_keys lookup: {t5 - t4:.2f}s")
+
         execution_time_ms = int((time.time() - start_time) * 1000)
         execution_time_ms = max(1, execution_time_ms)
         
         # Call supervisor routing to decide models dynamically
         from ..agents.supervisor import supervisor_decide_models
         decisions = supervisor_decide_models(request.logic or "", request.format or "SQL", request.tables, request.model)
+        
+        t6 = time.time()
+        print(f"[TIMING] supervisor_decide_models: {t6 - t5:.2f}s")
         
         llms_special_inst = (
             f"Supervisor Model Selections:\n"

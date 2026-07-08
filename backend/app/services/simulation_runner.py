@@ -102,6 +102,28 @@ def get_duckdb_connection() -> duckdb.DuckDBPyConnection:
     return duckdb.connect(config=config)
 
 
+# Spark Session and DataFrame Caching
+_spark_session = None
+_cached_dfs = {}  # table_name -> (records_len, spark_df)
+
+def get_cached_spark_session():
+    global _spark_session
+    if _spark_session is None:
+        from sqlframe.duckdb import DuckDBSession
+        _spark_session = DuckDBSession()
+        original_table = DuckDBSession.table
+        
+        def patched_table(self, name):
+            norm_name = name.lower().replace("_", "")
+            for t_name, (cached_len, spark_df) in _cached_dfs.items():
+                if norm_name == t_name.lower().replace("_", ""):
+                    return spark_df
+            return original_table(self, name)
+            
+        DuckDBSession.table = patched_table
+    return _spark_session
+
+
 async def run_simulation_logic(
     tables: list,
     columns: list,
@@ -141,6 +163,9 @@ async def run_simulation_logic(
     data_by_table = {}
     all_temps = {}
     
+    import time as _time
+    _t_fetch_start = _time.time()
+    
     if mock_inputs is not None:
         for table in tables:
             records = mock_inputs.get(table, [])
@@ -166,133 +191,174 @@ async def run_simulation_logic(
         for table_name, records in data_by_table.items():
             dfs[table_name] = pd.DataFrame(records) if records else pd.DataFrame()
 
+    _t_fetch_end = _time.time()
+    print(f"[TIMING] MongoDB fetch + DataFrame conversion ({len(tables)} tables, {records_processed} records): {_t_fetch_end - _t_fetch_start:.2f}s")
+
     fmt = (format_str or "SQL").upper()
     result_df = None
     executed_successfully = False
     used_duckdb_spark = False
     is_spark_format = "SPARK" in fmt
+    
+    _t_exec_start = _time.time()
 
     if is_spark_format and code_str:
-        try:
-            import sys
-            import types
-            from sqlframe.duckdb import DuckDBSession
-            import sqlframe.duckdb.functions as spark_funcs
+        # === FAST PATH: Try converting PySpark to SQL and run via DuckDB directly ===
+        # This is ~25x faster than the sqlframe exec() path
+        fast_path_succeeded = False
+        
+        # Check if it's a spark.sql() wrapper — extract the SQL directly
+        spark_sql_match = re.search(r'spark\.sql\(\s*f?["\']{3}(.*?)["\']{3}\s*\)', code_str, re.DOTALL | re.IGNORECASE)
+        spark_sql_match_nested = re.search(r'spark\.sql\(\s*f?["\']{1,4}(.*?)["\']{1,4}\s*\)', code_str, re.DOTALL | re.IGNORECASE)
+        spark_sql_match_single = re.search(r'spark\.sql\(\s*f?["\'](.*?)["\']\s*\)', code_str, re.DOTALL | re.IGNORECASE)
+        has_spark_sql_wrapper = bool(spark_sql_match or spark_sql_match_nested or spark_sql_match_single)
+        
+        is_spark_sql_format = "SQL" in fmt
+        is_raw_sql = False
+        if is_spark_sql_format and not has_spark_sql_wrapper:
+            if "import " not in code_str and " = " not in code_str and "def " not in code_str:
+                is_raw_sql = True
+        
+        is_sql_execution = has_spark_sql_wrapper or is_raw_sql
+        
+        sql_to_run = None
+        if is_sql_execution:
+            # Extract SQL from spark.sql() wrapper
+            sql_to_run = code_str
+            if spark_sql_match:
+                sql_to_run = spark_sql_match.group(1).strip()
+            elif spark_sql_match_nested:
+                sql_to_run = spark_sql_match_nested.group(1).strip()
+            elif spark_sql_match_single:
+                sql_to_run = spark_sql_match_single.group(1).strip()
             
-            # Map standard PySpark imports to sqlframe under the hood
-            pyspark_sql = types.ModuleType("pyspark.sql")
-            pyspark_sql.SparkSession = DuckDBSession
-            sys.modules['pyspark.sql'] = pyspark_sql
-            
-            pyspark_root = types.ModuleType("pyspark")
-            pyspark_root.sql = pyspark_sql
-            sys.modules['pyspark'] = pyspark_root
-            sys.modules['pyspark.sql.functions'] = spark_funcs
-            pyspark_sql.functions = spark_funcs
-            
-            try:
-                import sqlframe.base.types as sqlframe_types
-                sys.modules['pyspark.sql.types'] = sqlframe_types
-                pyspark_sql.types = sqlframe_types
-            except Exception:
-                pass
-                
-            try:
-                import sqlframe.duckdb.window as sqlframe_window
-                sys.modules['pyspark.sql.window'] = sqlframe_window
-                pyspark_sql.window = sqlframe_window
-                pyspark_sql.Window = sqlframe_window.Window
-            except Exception:
-                pass
-                
-            spark = DuckDBSession()
-            try:
-                import os
-                os.makedirs("/tmp/duckdb_temp/", exist_ok=True)
-            except Exception:
-                pass
-            
-            # Get Window class
-            try:
-                from sqlframe.duckdb.window import Window as spark_window
-            except Exception:
-                spark_window = None
-
-            globals_dict = {
-                "spark": spark,
-                "pd": pd,
-                "datetime": datetime,
-                "Window": spark_window
-            }
-            # Dynamically copy all sqlframe functions into global scope
-            for name in dir(spark_funcs):
-                if not name.startswith("_"):
-                    globals_dict[name] = getattr(spark_funcs, name)
-            for t_name, df_temp in dfs.items():
-                if not df_temp.empty:
-                    spark_df = spark.createDataFrame(df_temp)
-                    spark_df.createOrReplaceTempView(t_name)
-                    globals_dict[t_name] = spark_df
-                    globals_dict[t_name.lower()] = spark_df
-                    snake = re.sub(r'(?<!^)(?=[A-Z])', '_', t_name).lower()
-                    spark_df.createOrReplaceTempView(snake)
-                    globals_dict[snake] = spark_df
+            sql_to_run = sql_to_run.strip()
+            while True:
+                if sql_to_run.startswith("'''") and sql_to_run.endswith("'''"):
+                    sql_to_run = sql_to_run[3:-3].strip()
+                elif sql_to_run.startswith('"""') and sql_to_run.endswith('"""'):
+                    sql_to_run = sql_to_run[3:-3].strip()
+                elif sql_to_run.startswith("'") and sql_to_run.endswith("'"):
+                    sql_to_run = sql_to_run[1:-1].strip()
+                elif sql_to_run.startswith('"') and sql_to_run.endswith('"'):
+                    sql_to_run = sql_to_run[1:-1].strip()
                 else:
-                    # Register empty schema if possible
-                    try:
-                        spark_df = spark.createDataFrame(df_temp)
-                        spark_df.createOrReplaceTempView(t_name)
-                        globals_dict[t_name] = spark_df
-                        globals_dict[t_name.lower()] = spark_df
-                    except Exception:
-                        pass
+                    break
+        else:
+            # Try regex-based PySpark-to-SQL conversion (fast, no LLM)
+            sql_to_run = _pyspark_code_to_sql(code_str, list(dfs.keys()))
+        
+        if sql_to_run:
+            try:
+                import sqlglot
+                transpiled = sqlglot.transpile(sql_to_run, read="spark", write="duckdb")[0]
+                if transpiled:
+                    sql_to_run = transpiled
+            except Exception as tg_err:
+                print(f"[INFO] sqlglot transpile for PySpark fast path failed: {tg_err}")
             
-            is_spark_sql_format = "SQL" in fmt
-            spark_sql_match = re.search(r'spark\.sql\(\s*f?["\']{3}(.*?)["\']{3}\s*\)', code_str, re.DOTALL | re.IGNORECASE)
-            spark_sql_match_nested = re.search(r'spark\.sql\(\s*f?["\']{1,4}(.*?)["\']{1,4}\s*\)', code_str, re.DOTALL | re.IGNORECASE)
-            spark_sql_match_single = re.search(r'spark\.sql\(\s*f?["\'](.*?)["\']\s*\)', code_str, re.DOTALL | re.IGNORECASE)
-            
-            has_spark_sql_wrapper = bool(spark_sql_match or spark_sql_match_nested or spark_sql_match_single)
-            is_raw_sql = False
-            if is_spark_sql_format and not has_spark_sql_wrapper:
-                if "import " not in code_str and " = " not in code_str and "def " not in code_str:
-                    is_raw_sql = True
-                    
-            is_sql_execution = has_spark_sql_wrapper or is_raw_sql
-            extracted_df = None
-            
-            if is_sql_execution:
-                sql_query = code_str
-                if spark_sql_match:
-                    sql_query = spark_sql_match.group(1).strip()
-                elif spark_sql_match_nested:
-                    sql_query = spark_sql_match_nested.group(1).strip()
-                elif spark_sql_match_single:
-                    sql_query = spark_sql_match_single.group(1).strip()
+            try:
+                con_fast = get_duckdb_connection()
+                for t_name_fast, df_fast in dfs.items():
+                    if not df_fast.empty:
+                        con_fast.register(t_name_fast, df_fast)
+                        # Also register snake_case alias
+                        snake = re.sub(r'(?<!^)(?=[A-Z])', '_', t_name_fast).lower()
+                        if snake != t_name_fast:
+                            con_fast.register(snake, df_fast)
+                result_df = con_fast.execute(sql_to_run).fetchdf()
+                executed_successfully = True
+                fast_path_succeeded = True
+                print(f"[INFO] PySpark fast path succeeded via DuckDB SQL execution.")
+            except Exception as fast_err:
+                print(f"[INFO] PySpark fast path DuckDB execution failed: {fast_err}")
+        
+        # === SLOW PATH: Fall back to sqlframe exec() only if fast path failed ===
+        if not fast_path_succeeded:
+            try:
+                import sys
+                import types
+                from sqlframe.duckdb import DuckDBSession
+                import sqlframe.duckdb.functions as spark_funcs
                 
-                sql_query = sql_query.strip()
-                while True:
-                    if sql_query.startswith("'''") and sql_query.endswith("'''"):
-                        sql_query = sql_query[3:-3].strip()
-                    elif sql_query.startswith('"""') and sql_query.endswith('"""'):
-                        sql_query = sql_query[3:-3].strip()
-                    elif sql_query.startswith("'") and sql_query.endswith("'"):
-                        sql_query = sql_query[1:-1].strip()
-                    elif sql_query.startswith('"') and sql_query.endswith('"'):
-                        sql_query = sql_query[1:-1].strip()
-                    else:
-                        break
+                # Map standard PySpark imports to sqlframe under the hood
+                pyspark_sql = types.ModuleType("pyspark.sql")
+                pyspark_sql.SparkSession = DuckDBSession
+                sys.modules['pyspark.sql'] = pyspark_sql
+                
+                pyspark_root = types.ModuleType("pyspark")
+                pyspark_root.sql = pyspark_sql
+                sys.modules['pyspark'] = pyspark_root
+                sys.modules['pyspark.sql.functions'] = spark_funcs
+                pyspark_sql.functions = spark_funcs
                 
                 try:
-                    import sqlglot
-                    transpiled = sqlglot.transpile(sql_query, read="spark", write="duckdb")[0]
-                    if transpiled:
-                        sql_query = transpiled
-                except Exception as tg_err:
-                    print(f"[INFO] sqlglot transpile for SparkSQL failed: {tg_err}")
+                    import sqlframe.base.types as sqlframe_types
+                    sys.modules['pyspark.sql.types'] = sqlframe_types
+                    pyspark_sql.types = sqlframe_types
+                except Exception:
+                    pass
                     
-                extracted_df = spark.sql(sql_query)
-            else:
+                try:
+                    import sqlframe.duckdb.window as sqlframe_window
+                    sys.modules['pyspark.sql.window'] = sqlframe_window
+                    pyspark_sql.window = sqlframe_window
+                    pyspark_sql.Window = sqlframe_window.Window
+                except Exception:
+                    pass
+                    
+                spark = get_cached_spark_session()
+                try:
+                    import os
+                    os.makedirs("/tmp/duckdb_temp/", exist_ok=True)
+                except Exception:
+                    pass
+                
+                # Get Window class
+                try:
+                    from sqlframe.duckdb.window import Window as spark_window
+                except Exception:
+                    spark_window = None
+
+                globals_dict = {
+                    "spark": spark,
+                    "pd": pd,
+                    "datetime": datetime,
+                    "Window": spark_window
+                }
+                # Dynamically copy all sqlframe functions into global scope
+                for name in dir(spark_funcs):
+                    if not name.startswith("_"):
+                        globals_dict[name] = getattr(spark_funcs, name)
+                for t_name, df_temp in dfs.items():
+                    if not df_temp.empty:
+                        records_len = len(df_temp)
+                        cached_len, cached_spark_df = _cached_dfs.get(t_name, (None, None))
+                        
+                        if cached_spark_df is not None and cached_len == records_len:
+                            spark_df = cached_spark_df
+                        else:
+                            spark_df = spark.createDataFrame(df_temp)
+                            spark_df.createOrReplaceTempView(t_name)
+                            snake = re.sub(r'(?<!^)(?=[A-Z])', '_', t_name).lower()
+                            spark_df.createOrReplaceTempView(snake)
+                            _cached_dfs[t_name] = (records_len, spark_df)
+                            
+                        globals_dict[t_name] = spark_df
+                        globals_dict[t_name.lower()] = spark_df
+                        snake = re.sub(r'(?<!^)(?=[A-Z])', '_', t_name).lower()
+                        globals_dict[snake] = spark_df
+                    else:
+                        # Register empty schema if possible
+                        try:
+                            spark_df = spark.createDataFrame(df_temp)
+                            spark_df.createOrReplaceTempView(t_name)
+                            globals_dict[t_name] = spark_df
+                            globals_dict[t_name.lower()] = spark_df
+                        except Exception:
+                            pass
+                
+                extracted_df = None
                 pyspark_exec_failed = False
                 try:
                     locals_dict = {}
@@ -342,11 +408,10 @@ async def run_simulation_logic(
                     pyspark_exec_failed = True
                 
                 if pyspark_exec_failed or extracted_df is None:
+                    # Last resort: ask LLM to translate PySpark to SQL
                     try:
-                        sql_from_pyspark = _pyspark_code_to_sql(code_str, list(dfs.keys()))
-                        if not sql_from_pyspark:
-                            from ..generator import generator
-                            sql_from_pyspark = await generator.translate_pyspark_to_sql(code_str, list(dfs.keys()))
+                        from ..generator import generator
+                        sql_from_pyspark = await generator.translate_pyspark_to_sql(code_str, list(dfs.keys()))
                         
                         if sql_from_pyspark:
                             try:
@@ -366,12 +431,16 @@ async def run_simulation_logic(
                     except Exception:
                         pass
                         
-            if extracted_df is not None:
-                result_df = extracted_df.toPandas()
-                executed_successfully = True
-                used_duckdb_spark = True
-        except Exception:
-            pass
+                if extracted_df is not None:
+                    result_df = extracted_df.toPandas()
+                    executed_successfully = True
+                    used_duckdb_spark = True
+            except Exception:
+                pass
+
+    _t_exec_spark_end = _time.time()
+    if is_spark_format:
+        print(f"[TIMING] PySpark execution block: {_t_exec_spark_end - _t_exec_start:.2f}s (fast_path_succeeded={fast_path_succeeded if is_spark_format else 'N/A'})")
 
     is_sql_format = any(x in fmt for x in ["SQL", "POSTGRE", "MY", "ORACLE", "BIGQUERY", "SNOWFLAKE", "ICEBERG", "PL/SQL"]) and "NOSQL" not in fmt and not is_spark_format
     if is_sql_format and code_str:
@@ -759,4 +828,7 @@ async def run_simulation_logic(
         "meta_fields": meta_fields,
         "all_tables_data": all_tables_data
     }
+    _t_end = _time.time()
+    print(f"[TIMING] Post-processing (guardrails, column_details, CTEs, serialization): {_t_end - _t_exec_spark_end:.2f}s")
+    print(f"[TIMING] TOTAL run_simulation_logic: {_t_end - _t_fetch_start:.2f}s")
     return sanitize_for_serialization(res_payload)
