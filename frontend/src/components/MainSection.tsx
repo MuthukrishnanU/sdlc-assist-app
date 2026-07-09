@@ -801,7 +801,7 @@ const MainSection: React.FC<MainSectionProps> = ({
   const handleRunCode = async () => {
     if (!editableCode || !formData) return;
     if (formData.is_conversion && (!formData.tables || formData.tables.length === 0)) {
-      alert("Cannot run code since no matching tables found in DB.");
+      alert("Cannot run code since no matching tables found in semantic store.");
       return;
     }
     setIsSimulating(true);
