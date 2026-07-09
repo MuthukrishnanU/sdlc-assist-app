@@ -157,6 +157,88 @@ def get_cached_spark_session():
     return _spark_session
 
 
+def find_source_columns_for_derived(code_str: str, col_name: str, base_columns: list) -> list:
+    if not code_str:
+        return []
+        
+    # Helper to check if a word matches a base column using word boundaries
+    def has_column(expr: str, col: str) -> bool:
+        return bool(re.search(r'\b' + re.escape(col) + r'\b', expr))
+
+    # 1. PySpark: withColumn("col_name", expression)
+    # We escape the col_name to be safe. We search for withColumn(..., "col_name", ...)
+    with_col_match = re.search(r'withColumn\s*\(\s*["\']' + re.escape(col_name) + r'["\']\s*,\s*', code_str)
+    if with_col_match:
+        start_idx = with_col_match.end()
+        paren_count = 1
+        expr_chars = []
+        for i in range(start_idx, len(code_str)):
+            char = code_str[i]
+            if char == '(':
+                paren_count += 1
+            elif char == ')':
+                paren_count -= 1
+                if paren_count == 0:
+                    break
+            expr_chars.append(char)
+        expr_str = "".join(expr_chars)
+        found = [c for c in base_columns if has_column(expr_str, c)]
+        if found:
+            return found
+
+    # 2. PySpark/SQL: expression.alias("col_name")
+    alias_match = re.search(r'\.\s*alias\s*\(\s*["\']' + re.escape(col_name) + r'["\']\s*\)', code_str)
+    if alias_match:
+        # Extract preceding 300 characters
+        start_idx = max(0, alias_match.start() - 300)
+        expr_str = code_str[start_idx:alias_match.start()]
+        found = [c for c in base_columns if has_column(expr_str, c)]
+        if found:
+            return found
+
+    # 3. SQL: expression AS col_name or expression AS "col_name"
+    sql_as_match = re.search(r'\bAS\s+["\'`]?' + re.escape(col_name) + r'["\'`]?\b', code_str, re.IGNORECASE)
+    if sql_as_match:
+        # Extract preceding 300 characters
+        start_idx = max(0, sql_as_match.start() - 300)
+        expr_str = code_str[start_idx:sql_as_match.start()]
+        # Narrow to current SELECT item by finding the last non-nested comma
+        comma_indices = [i for i, char in enumerate(expr_str) if char == ',']
+        if comma_indices:
+            last_comma = comma_indices[-1]
+            expr_str = expr_str[last_comma + 1:]
+        found = [c for c in base_columns if has_column(expr_str, c)]
+        if found:
+            return found
+
+    # 4. Pandas: df['col_name'] = ...
+    pandas_match = re.search(r'\[\s*["\']' + re.escape(col_name) + r'["\']\s*\]\s*=\s*', code_str)
+    if pandas_match:
+        start_idx = pandas_match.end()
+        end_idx = min(len(code_str), start_idx + 300)
+        expr_str = code_str[start_idx:end_idx]
+        lines = expr_str.split('\n')
+        if lines:
+            expr_str = lines[0]
+        found = [c for c in base_columns if has_column(expr_str, c)]
+        if found:
+            return found
+
+    # 5. General fallback: search for col_name in the code, and extract the surrounding line(s)
+    matching_lines = []
+    for line in code_str.split('\n'):
+        if col_name in line:
+            matching_lines.append(line)
+    if matching_lines:
+        combined_lines = " ".join(matching_lines)
+        found = [c for c in base_columns if has_column(combined_lines, c)]
+        if found:
+            return found
+
+    # 6. Ultimate fallback: return any base columns mentioned anywhere in code_str using word boundaries
+    return [c for c in base_columns if has_column(code_str, c)]
+
+
 async def run_simulation_logic(
     tables: list,
     columns: list,
@@ -725,7 +807,7 @@ async def run_simulation_logic(
                     "classification": "public",
                     "lineage": {
                         "source_tables": tables,
-                        "source_columns": [c for c in meta_fields.keys() if c in code_str],
+                        "source_columns": find_source_columns_for_derived(code_str, col, list(meta_fields.keys())),
                         "transformation": "Locally executed computed query transformation"
                     }
                 }

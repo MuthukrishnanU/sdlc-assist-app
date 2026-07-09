@@ -299,6 +299,10 @@ const InputSection: React.FC<InputSectionProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (formData.tables.length === 0 || formData.columns.length === 0) {
+      alert("Please select at least one table and column.");
+      return;
+    }
     if (!formData.logic.trim()) {
       alert("Please describe your query requirements in the logic section.");
       return;

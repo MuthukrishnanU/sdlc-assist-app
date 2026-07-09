@@ -28,6 +28,74 @@ interface MainSectionProps {
   activeTab: 'sdlc' | 'cbi';
 }
 
+const getCodeSnippetForColumn = (code: string, colName: string): string => {
+  if (!code || !colName) return '';
+
+  // 1. PySpark: withColumn("col_name", expression)
+  const escapedColName = colName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+  const withColRegex = new RegExp(`withColumn\\s*\\(\\s*["']${escapedColName}["']\\s*,`, 'i');
+  const withColMatch = withColRegex.exec(code);
+  if (withColMatch) {
+    const startIdx = withColMatch.index;
+    let parenCount = 0;
+    let endIdx = startIdx;
+    for (let i = startIdx; i < code.length; i++) {
+      if (code[i] === '(') {
+        parenCount++;
+      } else if (code[i] === ')') {
+        parenCount--;
+        if (parenCount === 0) {
+          endIdx = i + 1;
+          break;
+        }
+      }
+    }
+    return code.slice(startIdx, endIdx).trim();
+  }
+
+  // 2. PySpark/SQL: expression.alias("col_name")
+  const aliasRegex = new RegExp(`\\.\\s*alias\\s*\\(\\s*["']${escapedColName}["']\\s*\\)`, 'i');
+  const aliasMatch = aliasRegex.exec(code);
+  if (aliasMatch) {
+    const startIdx = Math.max(0, aliasMatch.index - 200);
+    const preText = code.slice(startIdx, aliasMatch.index);
+    const lines = preText.split('\n');
+    const lastLines = lines.slice(-3).join('\n');
+    return `${lastLines}\n${aliasMatch[0]}`.trim();
+  }
+
+  // 3. SQL: expression AS col_name or expression AS "col_name"
+  const sqlAsRegex = new RegExp(`\\bAS\\s+["'\`]?${escapedColName}["'\`]?\\b`, 'i');
+  const sqlAsMatch = sqlAsRegex.exec(code);
+  if (sqlAsMatch) {
+    const startIdx = Math.max(0, sqlAsMatch.index - 200);
+    let preText = code.slice(startIdx, sqlAsMatch.index);
+    const commaIdx = preText.lastIndexOf(',');
+    if (commaIdx !== -1) {
+      preText = preText.slice(commaIdx + 1);
+    }
+    return `${preText.trim()} ${sqlAsMatch[0]}`.trim();
+  }
+
+  // 4. Pandas: df['col_name'] = ...
+  const pandasRegex = new RegExp(`\\[\\s*["']${escapedColName}["']\\s*\\]\\s*=`, 'i');
+  const pandasMatch = pandasRegex.exec(code);
+  if (pandasMatch) {
+    const startIdx = pandasMatch.index;
+    const endIdx = code.indexOf('\n', startIdx);
+    return code.slice(startIdx, endIdx !== -1 ? endIdx : code.length).trim();
+  }
+
+  // Fallback: lines containing the colName
+  const lines = code.split('\n');
+  const matchingLines = lines.filter(line => line.includes(colName));
+  if (matchingLines.length > 0) {
+    return matchingLines.slice(0, 5).join('\n').trim();
+  }
+
+  return '';
+};
+
 const MainSection: React.FC<MainSectionProps> = ({
   code,
   flowExplanation,
@@ -61,6 +129,7 @@ const MainSection: React.FC<MainSectionProps> = ({
   const [modalCodeValue, setModalCodeValue] = React.useState('');
   const [showLineage, setShowLineage] = React.useState(false);
   const [hoveredTargetCol, setHoveredTargetCol] = React.useState<string | null>(null);
+  const [activeClickedCol, setActiveClickedCol] = React.useState<string | null>(null);
 
   const [dqConfigParams, setDqConfigParams] = React.useState<any[]>([]);
   const [selectedDqParams, setSelectedDqParams] = React.useState<string[]>([]);
@@ -119,6 +188,16 @@ const MainSection: React.FC<MainSectionProps> = ({
       setEditableCode('');
     }
   }, [code]);
+
+  React.useEffect(() => {
+    const handleOutsideClick = () => {
+      setActiveClickedCol(null);
+    };
+    window.addEventListener('click', handleOutsideClick);
+    return () => {
+      window.removeEventListener('click', handleOutsideClick);
+    };
+  }, []);
 
   const handleOpenEditModal = () => {
     setModalCodeValue(editableCode);
@@ -235,6 +314,7 @@ const MainSection: React.FC<MainSectionProps> = ({
     setSelectedPreviewTable('Output Table');
     setShowLineage(false);
     setHoveredTargetCol(null);
+    setActiveClickedCol(null);
     setIsExplanationOpen(false);
     setXAxisParam('');
     setYAxisParam('');
@@ -451,6 +531,7 @@ const MainSection: React.FC<MainSectionProps> = ({
     setSelectedPreviewTable('Output Table');
     setShowLineage(false);
     setHoveredTargetCol(null);
+    setActiveClickedCol(null);
     setOutputGuardrailsStatus(null);
     setIsOutputGuardrailsModalOpen(false);
     setInsightsList([]);
@@ -719,9 +800,14 @@ const MainSection: React.FC<MainSectionProps> = ({
 
   const handleRunCode = async () => {
     if (!editableCode || !formData) return;
+    if (formData.is_conversion && (!formData.tables || formData.tables.length === 0)) {
+      alert("Cannot run code since no matching tables found in DB.");
+      return;
+    }
     setIsSimulating(true);
     setShowLineage(false);
     setHoveredTargetCol(null);
+    setActiveClickedCol(null);
     setCalculatedDqMetrics({});
     try {
       const response = await axios.post(`${apiBaseUrl}/simulate`, {
@@ -1966,180 +2052,229 @@ const MainSection: React.FC<MainSectionProps> = ({
           </p>
 
           <div className="min-w-[1000px] flex justify-center">
-            <svg id="lineage-svg" width={1000} height={Math.max(450, Math.max(lineageNodes.uniqueSources.length * 70, lineageNodes.targets.length * 80) + 100)} className="overflow-visible select-none">
-              <defs>
-                <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
-                  <feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#000000" flood-opacity="0.1" />
-                </filter>
-                <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feGaussianBlur stdDeviation="3" result="blur" />
-                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                </filter>
-              </defs>
+            <div className="relative" style={{ width: 1000 }}>
+              <svg id="lineage-svg" width={1000} height={Math.max(450, Math.max(lineageNodes.uniqueSources.length * 70, lineageNodes.targets.length * 80) + 100)} className="overflow-visible select-none">
+                <defs>
+                  <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
+                    <feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#000000" flood-opacity="0.1" />
+                  </filter>
+                  <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feGaussianBlur stdDeviation="3" result="blur" />
+                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                  </filter>
+                </defs>
 
-              {/* Connections (Bézier curves) */}
-              <g>
-                {lineageNodes.targets.map((tgt, tIdx) => {
-                  const targetY = 50 + tIdx * 80 + 22.5;
-                  const transX1 = 400;
-                  const transX2 = 600;
+                {/* Connections (Bézier curves) */}
+                <g>
+                  {lineageNodes.targets.map((tgt, tIdx) => {
+                    const targetY = 50 + tIdx * 80 + 22.5;
+                    const transX1 = 400;
+                    const transX2 = 600;
 
-                  const lin = columnDetailsMap[tgt]?.lineage;
-                  if (!lin) return null;
+                    const lin = columnDetailsMap[tgt]?.lineage;
+                    if (!lin) return null;
 
-                  const srcTables = lin.source_tables || [];
-                  const srcCols = lin.source_columns || [];
+                    const srcTables = lin.source_tables || [];
+                    const srcCols = lin.source_columns || [];
 
-                  const isHovered = hoveredTargetCol === tgt;
-                  const isAnyHovered = hoveredTargetCol !== null;
-                  const pathOpacity = isAnyHovered ? (isHovered ? 1.0 : 0.08) : 0.5;
-                  const pathStroke = isHovered ? '#EB1165' : '#94A3B8';
-                  const strokeWidth = isHovered ? 3.5 : 1.5;
+                    const isHovered = hoveredTargetCol === tgt;
+                    const isAnyHovered = hoveredTargetCol !== null;
+                    const pathOpacity = isAnyHovered ? (isHovered ? 1.0 : 0.08) : 0.5;
+                    const pathStroke = isHovered ? '#EB1165' : '#94A3B8';
+                    const strokeWidth = isHovered ? 3.5 : 1.5;
 
-                  return (
-                    <g key={`paths-${tgt}`}>
-                      <path
-                        d={`M ${transX2} ${targetY} C ${(transX2 + 730) / 2} ${targetY}, ${(transX2 + 730) / 2} ${targetY}, 730 ${targetY}`}
-                        fill="none"
-                        stroke={pathStroke}
-                        strokeWidth={strokeWidth}
-                        style={{ opacity: pathOpacity }}
-                        className="transition-all duration-300"
-                      />
+                    return (
+                      <g key={`paths-${tgt}`}>
+                        <path
+                          d={`M ${transX2} ${targetY} C ${(transX2 + 730) / 2} ${targetY}, ${(transX2 + 730) / 2} ${targetY}, 730 ${targetY}`}
+                          fill="none"
+                          stroke={pathStroke}
+                          strokeWidth={strokeWidth}
+                          style={{ opacity: pathOpacity }}
+                          className="transition-all duration-300"
+                        />
 
-                      {srcCols.map((col: string, sIdx: number) => {
-                        const tbl = srcTables[sIdx] || srcTables[0] || 'Unknown Table';
-                        const key = `${tbl}.${col}`;
-                        const sourceIdx = lineageNodes.uniqueSources.indexOf(key);
-                        if (sourceIdx === -1) return null;
+                        {srcCols.map((col: string, sIdx: number) => {
+                          const tbl = srcTables[sIdx] || srcTables[0] || 'Unknown Table';
+                          const key = `${tbl}.${col}`;
+                          const sourceIdx = lineageNodes.uniqueSources.indexOf(key);
+                          if (sourceIdx === -1) return null;
 
-                        const sourceY = 50 + sourceIdx * 70 + 22.5;
+                          const sourceY = 50 + sourceIdx * 70 + 22.5;
 
-                        return (
-                          <path
-                            key={`curve-${tgt}-${key}`}
-                            d={`M 270 ${sourceY} C ${(270 + transX1) / 2} ${sourceY}, ${(270 + transX1) / 2} ${targetY}, ${transX1} ${targetY}`}
-                            fill="none"
-                            stroke={pathStroke}
-                            strokeWidth={strokeWidth}
-                            style={{ opacity: pathOpacity }}
-                            className="transition-all duration-300"
-                          />
-                        );
-                      })}
-                    </g>
-                  );
-                })}
-              </g>
+                          return (
+                            <path
+                              key={`curve-${tgt}-${key}`}
+                              d={`M 270 ${sourceY} C ${(270 + transX1) / 2} ${sourceY}, ${(270 + transX1) / 2} ${targetY}, ${transX1} ${targetY}`}
+                              fill="none"
+                              stroke={pathStroke}
+                              strokeWidth={strokeWidth}
+                              style={{ opacity: pathOpacity }}
+                              className="transition-all duration-300"
+                            />
+                          );
+                        })}
+                      </g>
+                    );
+                  })}
+                </g>
 
-              {/* Left Port Sources */}
-              <g>
-                {lineageNodes.uniqueSources.map((src, idx) => {
-                  const y = 50 + idx * 70;
-                  const [tbl, col] = src.split('.');
-                  return (
-                    <g key={src} className="transition-all duration-300">
-                      <rect
-                        x={50}
-                        y={y}
-                        width={220}
-                        height={45}
-                        rx={8}
-                        fill={isDark ? '#1e1b1e' : '#f8fafc'}
-                        stroke={isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0'}
-                        strokeWidth="1.5"
-                        filter="url(#shadow)"
-                      />
-                      <text x={65} y={y + 18} className="text-[10px] font-bold fill-axis-red opacity-80 uppercase tracking-wide">
-                        {tbl}
-                      </text>
-                      <text x={65} y={y + 33} className={`text-[12px] font-mono font-bold ${isDark ? 'fill-gray-100' : 'fill-gray-700'}`}>
-                        {col}
-                      </text>
-                      <circle cx={270} cy={y + 22.5} r={4} className="fill-axis-red" />
-                    </g>
-                  );
-                })}
-              </g>
+                {/* Left Port Sources */}
+                <g>
+                  {lineageNodes.uniqueSources.map((src, idx) => {
+                    const y = 50 + idx * 70;
+                    const [tbl, col] = src.split('.');
+                    return (
+                      <g key={src} className="transition-all duration-300">
+                        <rect
+                          x={50}
+                          y={y}
+                          width={220}
+                          height={45}
+                          rx={8}
+                          fill={isDark ? '#1e1b1e' : '#f8fafc'}
+                          stroke={isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0'}
+                          strokeWidth="1.5"
+                          filter="url(#shadow)"
+                        />
+                        <text x={65} y={y + 18} className="text-[10px] font-bold fill-axis-red opacity-80 uppercase tracking-wide">
+                          {tbl}
+                        </text>
+                        <text x={65} y={y + 33} className={`text-[12px] font-mono font-bold ${isDark ? 'fill-gray-100' : 'fill-gray-700'}`}>
+                          {col}
+                        </text>
+                        <circle cx={270} cy={y + 22.5} r={4} className="fill-axis-red" />
+                      </g>
+                    );
+                  })}
+                </g>
 
-              {/* Middle Port Transforms */}
-              <g>
-                {lineageNodes.targets.map((tgt, idx) => {
-                  const y = 50 + idx * 80;
-                  const lin = columnDetailsMap[tgt]?.lineage;
-                  const transDesc = lin?.transformation || 'Direct data ingest copy';
-                  const truncatedDesc = transDesc.length > 25 ? `${transDesc.slice(0, 22)}...` : transDesc;
+                {/* Middle Port Transforms */}
+                <g>
+                  {lineageNodes.targets.map((tgt, idx) => {
+                    const y = 50 + idx * 80;
+                    const lin = columnDetailsMap[tgt]?.lineage;
+                    const transDesc = lin?.transformation || 'Direct data ingest copy';
+                    const truncatedDesc = transDesc.length > 25 ? `${transDesc.slice(0, 22)}...` : transDesc;
 
-                  const isHovered = hoveredTargetCol === tgt;
-                  const isAnyHovered = hoveredTargetCol !== null;
-                  const opacity = isAnyHovered ? (isHovered ? 1.0 : 0.2) : 1.0;
+                    const isHovered = hoveredTargetCol === tgt;
+                    const isAnyHovered = hoveredTargetCol !== null;
+                    const opacity = isAnyHovered ? (isHovered ? 1.0 : 0.2) : 1.0;
 
-                  return (
-                    <g key={`trans-${tgt}`} style={{ opacity }} className="transition-all duration-300">
-                      <rect
-                        x={400}
-                        y={y}
-                        width={200}
-                        height={45}
-                        rx={8}
-                        fill={isDark ? 'rgba(235,17,101,0.05)' : 'rgba(235,17,101,0.02)'}
-                        stroke={isHovered ? '#EB1165' : (isDark ? 'rgba(255,255,255,0.08)' : '#f1f5f9')}
-                        strokeWidth={isHovered ? 2 : 1}
-                        filter="url(#shadow)"
-                      />
-                      <text x={415} y={y + 18} className="text-[9px] font-bold fill-axis-red uppercase tracking-wider">
-                        Transformation
-                      </text>
-                      <text x={415} y={y + 33} className={`text-[11px] font-medium italic ${isDark ? 'fill-gray-300' : 'fill-gray-600'}`}>
-                        {truncatedDesc}
-                        <title>{transDesc}</title>
-                      </text>
-                      <circle cx={400} cy={y + 22.5} r={3} className={isDark ? 'fill-white/30' : 'fill-gray-400'} />
-                      <circle cx={600} cy={y + 22.5} r={3} className={isDark ? 'fill-white/30' : 'fill-gray-400'} />
-                    </g>
-                  );
-                })}
-              </g>
+                    return (
+                      <g key={`trans-${tgt}`} style={{ opacity }} className="transition-all duration-300">
+                        <rect
+                          x={400}
+                          y={y}
+                          width={200}
+                          height={45}
+                          rx={8}
+                          fill={isDark ? 'rgba(235,17,101,0.05)' : 'rgba(235,17,101,0.02)'}
+                          stroke={isHovered ? '#EB1165' : (isDark ? 'rgba(255,255,255,0.08)' : '#f1f5f9')}
+                          strokeWidth={isHovered ? 2 : 1}
+                          filter="url(#shadow)"
+                        />
+                        <text x={415} y={y + 18} className="text-[9px] font-bold fill-axis-red uppercase tracking-wider">
+                          Transformation
+                        </text>
+                        <text x={415} y={y + 33} className={`text-[11px] font-medium italic ${isDark ? 'fill-gray-300' : 'fill-gray-600'}`}>
+                          {truncatedDesc}
+                          <title>{transDesc}</title>
+                        </text>
+                        <circle cx={400} cy={y + 22.5} r={3} className={isDark ? 'fill-white/30' : 'fill-gray-400'} />
+                        <circle cx={600} cy={y + 22.5} r={3} className={isDark ? 'fill-white/30' : 'fill-gray-400'} />
+                      </g>
+                    );
+                  })}
+                </g>
 
-              {/* Right Port Targets */}
-              <g>
-                {lineageNodes.targets.map((tgt, idx) => {
-                  const y = 50 + idx * 80;
-                  const isHovered = hoveredTargetCol === tgt;
-                  const isAnyHovered = hoveredTargetCol !== null;
-                  const opacity = isAnyHovered ? (isHovered ? 1.0 : 0.25) : 1.0;
+                {/* Right Port Targets */}
+                <g>
+                  {lineageNodes.targets.map((tgt, idx) => {
+                    const y = 50 + idx * 80;
+                    const isHovered = hoveredTargetCol === tgt;
+                    const isAnyHovered = hoveredTargetCol !== null;
+                    const opacity = isAnyHovered ? (isHovered ? 1.0 : 0.25) : 1.0;
 
-                  return (
-                    <g
-                      key={`tgt-${tgt}`}
-                      onMouseEnter={() => setHoveredTargetCol(tgt)}
-                      onMouseLeave={() => setHoveredTargetCol(null)}
-                      style={{ opacity }}
-                      className="transition-all duration-300 cursor-pointer"
-                    >
-                      <rect
-                        x={730}
-                        y={y}
-                        width={220}
-                        height={45}
-                        rx={8}
-                        fill={isHovered ? (isDark ? 'rgba(235,17,101,0.15)' : 'rgba(235,17,101,0.05)') : (isDark ? '#1e1b1e' : '#f8fafc')}
-                        stroke={isHovered ? '#EB1165' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}
-                        strokeWidth={isHovered ? 2 : 1.5}
-                        filter="url(#shadow)"
-                      />
-                      <text x={745} y={y + 18} className="text-[10px] font-bold fill-axis-red uppercase tracking-wider">
-                        Target Column
-                      </text>
-                      <text x={745} y={y + 33} className={`text-[12px] font-mono font-bold ${isDark ? 'fill-gray-100' : 'fill-gray-700'}`}>
-                        {tgt}
-                      </text>
-                      <circle cx={730} cy={y + 22.5} r={4} className="fill-axis-red" />
-                    </g>
-                  );
-                })}
-              </g>
-            </svg>
+                    return (
+                      <g
+                        key={`tgt-${tgt}`}
+                        onMouseEnter={() => setHoveredTargetCol(tgt)}
+                        onMouseLeave={() => setHoveredTargetCol(null)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveClickedCol(prev => prev === tgt ? null : tgt);
+                        }}
+                        style={{ opacity }}
+                        className="transition-all duration-300 cursor-pointer"
+                      >
+                        <rect
+                          x={730}
+                          y={y}
+                          width={220}
+                          height={45}
+                          rx={8}
+                          fill={isHovered ? (isDark ? 'rgba(235,17,101,0.15)' : 'rgba(235,17,101,0.05)') : (isDark ? '#1e1b1e' : '#f8fafc')}
+                          stroke={isHovered ? '#EB1165' : (isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0')}
+                          strokeWidth={isHovered ? 2 : 1.5}
+                          filter="url(#shadow)"
+                        />
+                        <text x={745} y={y + 18} className="text-[10px] font-bold fill-axis-red uppercase tracking-wider">
+                          Target Column
+                        </text>
+                        <text x={745} y={y + 33} className={`text-[12px] font-mono font-bold ${isDark ? 'fill-gray-100' : 'fill-gray-700'}`}>
+                          {tgt}
+                        </text>
+                        <circle cx={730} cy={y + 22.5} r={4} className="fill-axis-red" />
+                      </g>
+                    );
+                  })}
+                </g>
+              </svg>
+
+              {activeClickedCol && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: '420px',
+                    top: `${50 + lineageNodes.targets.indexOf(activeClickedCol) * 80 - 10}px`,
+                    width: '290px',
+                    zIndex: 50,
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  className="bg-gray-900 border border-gray-700 text-white rounded-xl shadow-2xl p-4 animate-in fade-in zoom-in-95 duration-200 text-left"
+                >
+                  <style>{`
+                  .custom-code-scroll::-webkit-scrollbar {
+                    width: 8px;
+                  }
+                  .custom-code-scroll::-webkit-scrollbar-track {
+                    background: #111827;
+                    border-radius: 4px;
+                  }
+                  .custom-code-scroll::-webkit-scrollbar-thumb {
+                    background-color: #4b5563;
+                    border-radius: 4px;
+                    border: 1px solid #eab308;
+                  }
+                  .custom-code-scroll::-webkit-scrollbar-thumb:hover {
+                    background-color: #6b7280;
+                  }
+                `}</style>
+                  <div className="flex items-center justify-between border-b border-gray-800 pb-2 mb-2">
+                    <span className="text-[10px] font-bold text-axis-red uppercase tracking-wider">
+                      Referenced Code Snippet
+                    </span>
+                    <span className="text-[10px] font-mono bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded">
+                      {activeClickedCol}
+                    </span>
+                  </div>
+                  <pre className="text-[11px] font-mono whitespace-pre-wrap break-all overflow-y-auto max-h-[160px] text-gray-200 leading-relaxed custom-code-scroll">
+                    {getCodeSnippetForColumn(editableCode || code || '', activeClickedCol)}
+                  </pre>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </section>
@@ -2235,9 +2370,8 @@ const MainSection: React.FC<MainSectionProps> = ({
                         type="button"
                         onClick={fetchDqConfigParams}
                         disabled={isRefreshingParams}
-                        className={`p-1 rounded-lg transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${
-                          isDark ? 'text-white/60 hover:text-white' : 'text-gray-500 hover:text-gray-800'
-                        }`}
+                        className={`p-1 rounded-lg transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${isDark ? 'text-white/60 hover:text-white' : 'text-gray-500 hover:text-gray-800'
+                          }`}
                         title="Refresh parameters"
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingParams ? 'animate-spin' : ''}`} />
@@ -2486,55 +2620,58 @@ const MainSection: React.FC<MainSectionProps> = ({
                     Execution Explanation
                   </button>
                 )}
-                {editableCode && (
-                  <button
-                    onClick={handleGenerateLineage}
-                    className={`px-3 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border ${isDark
-                      ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30'
-                      : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200'}`}
-                  >
-                    <GitBranch className="w-4 h-4" />
-                    {showLineage ? "Hide Lineage" : "Show Lineage"}
-                  </button>
+                {simulatedData.length > 0 && (
+                  <>
+                    {editableCode && (
+                      <button
+                        onClick={handleGenerateLineage}
+                        className={`px-3 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border ${isDark
+                          ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30'
+                          : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200'}`}
+                      >
+                        <GitBranch className="w-4 h-4" />
+                        {showLineage ? "Hide Lineage" : "Show Lineage"}
+                      </button>
+                    )}
+                    <button
+                      onClick={handleStoreSemanticCache}
+                      disabled={!editableCode || isStoringCache || isLoading}
+                      className={`px-3 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
+                        ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30'
+                        : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'}`}
+                    >
+                      {isStoringCache ? (
+                        <div className="w-4 h-4 border-2 border-amber-300/30 border-t-amber-300 rounded-full animate-spin" />
+                      ) : (
+                        <Database className="w-4 h-4" />
+                      )}
+                      Store at Semantic Cache
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        if (testCases.length > 0) {
+                          setShowTestCasesSection(prev => !prev);
+                        } else {
+                          handleGenerateTestCases();
+                        }
+                      }}
+                      disabled={!editableCode || isGeneratingTestCases || isLoading}
+                      className={`px-3 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
+                        ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30'
+                        : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200'}`}
+                    >
+                      {isGeneratingTestCases ? (
+                        <div className="w-4 h-4 border-2 border-blue-300/30 border-t-blue-300 rounded-full animate-spin" />
+                      ) : (
+                        <CheckSquare className="w-4 h-4" />
+                      )}
+                      {testCases.length > 0
+                        ? (showTestCasesSection ? 'Hide Test Cases' : 'Show Test Cases')
+                        : 'Generate Test Cases'}
+                    </button>
+                  </>
                 )}
-                <button
-                  onClick={handleStoreSemanticCache}
-                  disabled={!editableCode || isStoringCache || isLoading}
-                  className={`px-3 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
-                    ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30'
-                    : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'}`}
-                >
-                  {isStoringCache ? (
-                    <div className="w-4 h-4 border-2 border-amber-300/30 border-t-amber-300 rounded-full animate-spin" />
-                  ) : (
-                    <Database className="w-4 h-4" />
-                  )}
-                  Store at Semantic Cache
-                </button>
-
-                <button
-                  onClick={() => {
-                    if (testCases.length > 0) {
-                      setShowTestCasesSection(prev => !prev);
-                    } else {
-                      handleGenerateTestCases();
-                    }
-                  }}
-                  disabled={!editableCode || isGeneratingTestCases || isLoading}
-                  className={`px-3 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
-                    ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30'
-                    : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200'}`}
-                >
-                  {isGeneratingTestCases ? (
-                    <div className="w-4 h-4 border-2 border-blue-300/30 border-t-blue-300 rounded-full animate-spin" />
-                  ) : (
-                    <CheckSquare className="w-4 h-4" />
-                  )}
-                  {testCases.length > 0
-                    ? (showTestCasesSection ? 'Hide Test Cases' : 'Show Test Cases')
-                    : 'Generate Test Cases'}
-                </button>
-
                 <button
                   onClick={handleRunCode}
                   disabled={!editableCode || isSimulating || isLoading}
@@ -2895,7 +3032,7 @@ const MainSection: React.FC<MainSectionProps> = ({
                 {simulationData?.execution_explanation && (
                   <button
                     onClick={() => setIsExplanationOpen(true)}
-                    className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border ${isDark
+                    className={`px-3 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border ${isDark
                       ? 'bg-axis-red/20 hover:bg-axis-red/30 text-white border-axis-red/30'
                       : 'bg-red-50 hover:bg-red-100 text-axis-burgundy border-red-200'}`}
                   >
@@ -2903,59 +3040,62 @@ const MainSection: React.FC<MainSectionProps> = ({
                     Execution Explanation
                   </button>
                 )}
-                {editableCode && (
-                  <button
-                    onClick={handleGenerateLineage}
-                    className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border ${isDark
-                      ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30'
-                      : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200'}`}
-                  >
-                    <GitBranch className="w-4 h-4" />
-                    {showLineage ? "Hide Lineage" : "Show Lineage"}
-                  </button>
+                {simulatedData.length > 0 && (
+                  <>
+                    {editableCode && (
+                      <button
+                        onClick={handleGenerateLineage}
+                        className={`px-3 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 border ${isDark
+                          ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30'
+                          : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200'}`}
+                      >
+                        <GitBranch className="w-4 h-4" />
+                        {showLineage ? "Hide Lineage" : "Show Lineage"}
+                      </button>
+                    )}
+                    <button
+                      onClick={handleStoreSemanticCache}
+                      disabled={!editableCode || isStoringCache || isLoading}
+                      className={`px-3 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
+                        ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30'
+                        : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'}`}
+                    >
+                      {isStoringCache ? (
+                        <div className="w-4 h-4 border-2 border-amber-300/30 border-t-amber-300 rounded-full animate-spin" />
+                      ) : (
+                        <Database className="w-4 h-4" />
+                      )}
+                      Store at Semantic Cache
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        if (testCases.length > 0) {
+                          setShowTestCasesSection(prev => !prev);
+                        } else {
+                          handleGenerateTestCases();
+                        }
+                      }}
+                      disabled={!editableCode || isGeneratingTestCases || isLoading}
+                      className={`px-3 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
+                        ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30'
+                        : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200'}`}
+                    >
+                      {isGeneratingTestCases ? (
+                        <div className="w-4 h-4 border-2 border-blue-300/30 border-t-blue-300 rounded-full animate-spin" />
+                      ) : (
+                        <CheckSquare className="w-4 h-4" />
+                      )}
+                      {testCases.length > 0
+                        ? (showTestCasesSection ? 'Hide Test Cases' : 'Show Test Cases')
+                        : 'Generate Test Cases'}
+                    </button>
+                  </>
                 )}
-                <button
-                  onClick={handleStoreSemanticCache}
-                  disabled={!editableCode || isStoringCache || isLoading}
-                  className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
-                    ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30'
-                    : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'}`}
-                >
-                  {isStoringCache ? (
-                    <div className="w-4 h-4 border-2 border-amber-300/30 border-t-amber-300 rounded-full animate-spin" />
-                  ) : (
-                    <Database className="w-4 h-4" />
-                  )}
-                  Store at Semantic Cache
-                </button>
-
-                <button
-                  onClick={() => {
-                    if (testCases.length > 0) {
-                      setShowTestCasesSection(prev => !prev);
-                    } else {
-                      handleGenerateTestCases();
-                    }
-                  }}
-                  disabled={!editableCode || isGeneratingTestCases || isLoading}
-                  className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
-                    ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30'
-                    : 'bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200'}`}
-                >
-                  {isGeneratingTestCases ? (
-                    <div className="w-4 h-4 border-2 border-blue-300/30 border-t-blue-300 rounded-full animate-spin" />
-                  ) : (
-                    <CheckSquare className="w-4 h-4" />
-                  )}
-                  {testCases.length > 0
-                    ? (showTestCasesSection ? 'Hide Test Cases' : 'Show Test Cases')
-                    : 'Generate Test Cases'}
-                </button>
-
                 <button
                   onClick={handleRunCode}
                   disabled={!editableCode || isSimulating || isLoading}
-                  className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
+                  className={`px-3 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${isDark
                     ? 'bg-white/10 hover:bg-white/15 text-white border border-white/10'
                     : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200'}`}
                 >
